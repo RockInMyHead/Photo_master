@@ -87,10 +87,11 @@ async def process_folder(
     progress: Callable[[int, str], None],
 ) -> Dict:
     # Консервативные параметры (качество)
-    link_sim = 0.62
-    merge_sim = 0.74
-    assign_sim = 0.68
+    link_sim = 0.64
+    merge_sim = 0.80
+    assign_sim = 0.67
     min_intra_sim = 0.55
+    assign_margin = 0.04
 
     progress(2, "Подготовка")
     progress(3, "Сканирование файлов")
@@ -165,6 +166,7 @@ async def process_folder(
             merge_sim=merge_sim,
             assign_sim=assign_sim,
             min_intra_sim=min_intra_sim,
+            assign_margin=assign_margin,
         )
         print(f"Clustering completed: {len(set(labels0))} clusters, {len(_out_idx)} outliers")
     except Exception as e:

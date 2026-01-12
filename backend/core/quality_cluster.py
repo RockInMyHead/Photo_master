@@ -36,6 +36,7 @@ def cluster_quality(
     merge_sim: float = 0.74,
     assign_sim: float = 0.68,
     min_intra_sim: float = 0.55,
+    assign_margin: float = 0.04,
 ) -> Tuple[List[int], List[int]]:
     n = len(embeddings)
     if n == 0:
@@ -147,7 +148,16 @@ def cluster_quality(
         sims = C3 @ X[i]
         best_k = int(np.argmax(sims))
         best_s = float(sims[best_k])
-        if best_s >= assign_sim:
+
+        # NEW: second best for margin constraint
+        if sims.shape[0] > 1:
+            tmp_sims = sims.copy()
+            tmp_sims[best_k] = -1.0
+            second_s = float(np.max(tmp_sims))
+        else:
+            second_s = -1.0
+
+        if best_s >= assign_sim and (best_s - second_s) >= assign_margin:
             final[i] = best_k
         else:
             final_out.add(i)

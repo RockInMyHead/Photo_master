@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Tuple
 import numpy as np
+import cv2
 
 _APP = None
 
@@ -18,6 +19,22 @@ class FaceRecord:
 def _l2norm(x: np.ndarray) -> np.ndarray:
     n = float(np.linalg.norm(x))
     return x if n <= 1e-12 else (x / n)
+
+def _tta_embedding(app, img_bgr, face) -> np.ndarray | None:
+    # recognition model доступен как app.models['recognition'] (dict taskname->model)
+    rec = getattr(app, "models", {}).get("recognition")
+    if rec is None or getattr(face, "kps", None) is None:
+        return None
+
+    from insightface.utils import face_align
+
+    # выравнивание под ArcFace input
+    aimg = face_align.norm_crop(img_bgr, landmark=face.kps, image_size=rec.input_size[0])
+    aimg_f = cv2.flip(aimg, 1)
+
+    feats = rec.get_feat([aimg, aimg_f])  # (2, D)
+    emb = feats.mean(axis=0).astype(np.float32).reshape(-1)
+    return _l2norm(emb)
 
 def init_engine(*, det_size=(1280, 1280), det_thresh: float = 0.65) -> None:
     global _APP
@@ -37,7 +54,6 @@ def extract_faces(image_path: str, *, min_face_px: int = 40) -> List[FaceRecord]
     if _APP is None:
         init_engine()
 
-    import cv2
     p = Path(image_path)
 
     # Важно: unicode-safe чтение на Windows
@@ -47,8 +63,8 @@ def extract_faces(image_path: str, *, min_face_px: int = 40) -> List[FaceRecord]
         if img_bgr is None:
             return []
 
-        img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-        faces = _APP.get(img_rgb)
+        # ВАЖНО: FaceAnalysis.get ожидает BGR (OpenCV), НЕ RGB
+        faces = _APP.get(img_bgr)
     except Exception as e:
         print(f"Error processing {image_path}: {e}")
         return []
@@ -60,12 +76,14 @@ def extract_faces(image_path: str, *, min_face_px: int = 40) -> List[FaceRecord]
         if (x2 - x1) < min_face_px or (y2 - y1) < min_face_px:
             continue
 
-        emb = getattr(face, "normed_embedding", None)
+        emb = _tta_embedding(_APP, img_bgr, face)
         if emb is None:
-            emb = getattr(face, "embedding", None)
-        if emb is None:
-            continue
-        emb = _l2norm(np.asarray(emb, dtype=np.float32).reshape(-1))
+            emb = getattr(face, "normed_embedding", None)
+            if emb is None:
+                emb = getattr(face, "embedding", None)
+            if emb is None:
+                continue
+            emb = _l2norm(np.asarray(emb, dtype=np.float32).reshape(-1))
 
         out.append(FaceRecord(
             image_path=str(p),
