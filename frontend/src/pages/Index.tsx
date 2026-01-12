@@ -118,25 +118,32 @@ const Index = () => {
         console.log('🔌 Подключение EventSource...');
         es = apiClient.subscribeToUpdates();
 
-        es.onmessage = (event) => {
-          // API returns simple data for update events
+        // Handle named events from backend
+        const handleUpdate = (event: MessageEvent) => {
           try {
             const data = JSON.parse(event.data);
             if (data.job_id) {
               console.log(`🔄 Получено обновление задачи ${data.job_id}`);
               updateJobStatus(data.job_id);
             }
-            // Ignore ping messages and other data
           } catch (e) {
-            // Ignore malformed data
-            console.debug('Malformed EventSource data:', event.data);
+            console.debug('Malformed SSE data:', event.data);
           }
         };
 
+        const handlePing = () => {
+          // Keep-alive ping from server
+          console.debug('SSE: ping');
+        };
+
+        es.addEventListener('update', handleUpdate as any);
+        es.addEventListener('ping', handlePing as any);
+
+        // Also handle generic messages just in case
+        es.onmessage = handleUpdate;
+
         es.onerror = (error) => {
           console.warn('❌ EventSource connection error:', error);
-          // Don't immediately close, just log the error
-          // EventSource will automatically try to reconnect
         };
 
         es.onopen = () => {
@@ -207,7 +214,7 @@ const Index = () => {
     };
 
     // Delay initialization to ensure backend is ready
-    setTimeout(() => {
+    const initTimeout = setTimeout(() => {
       checkExistingJobs();
     }, 1000);
 
@@ -216,6 +223,7 @@ const Index = () => {
         es.close();
       }
       clearInterval(intervalId);
+      clearTimeout(initTimeout);
     };
   }, [updateJobStatus]);
 
@@ -316,7 +324,7 @@ const Index = () => {
     }
   };
 
-  const queueIds = queue.map(q => q.name);
+  const queuePaths = queue.map(q => q.path);
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -325,7 +333,7 @@ const Index = () => {
       <main className="flex-1 flex min-h-0">
         <div className="flex-1 flex flex-col bg-card/50">
           <FileBrowser
-            queueIds={queueIds}
+            queuePaths={queuePaths}
             onAddToQueue={addToQueue}
           />
         </div>

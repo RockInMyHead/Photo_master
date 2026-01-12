@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { Slider } from "@/components/ui/slider";
 
 interface FileBrowserProps {
-  queueIds: string[];
+  queuePaths: string[];
   onAddToQueue: (handle: FileSystemDirectoryHandle, name: string, path: string) => void;
 }
 
@@ -22,7 +22,7 @@ interface ServerFileItem {
   preview_path?: string;
 }
 
-export const FileBrowser = ({ queueIds, onAddToQueue }: FileBrowserProps) => {
+export const FileBrowser = ({ queuePaths, onAddToQueue }: FileBrowserProps) => {
   const [roots, setRoots] = useState<string[]>([]);
   const [currentPath, setCurrentPath] = useState<string>("");
   const [items, setItems] = useState<ServerFileItem[]>([]);
@@ -319,7 +319,7 @@ export const FileBrowser = ({ queueIds, onAddToQueue }: FileBrowserProps) => {
                 onDragLeave={handleDragLeaveFolder}
                 onDrop={(e) => handleDropMove(e, item)}
                 className={`group cursor-pointer transition-all duration-200 hover:shadow-lg hover:scale-[1.02] border-2 ${
-                  queueIds.includes(item.name) ? 'ring-2 ring-green-500 border-green-500' : 
+                  queuePaths.includes(item.path) ? 'ring-2 ring-green-500 border-green-500' : 
                   dragOverFolder === item.path ? 'ring-2 ring-blue-500 border-blue-500 bg-blue-50/50' :
                   'hover:border-blue-300'
                 }`}
@@ -393,30 +393,30 @@ export const FileBrowser = ({ queueIds, onAddToQueue }: FileBrowserProps) => {
 
                     {item.type === 'directory' && (
                       <Button
-                        variant={queueIds.includes(item.name) ? "default" : "ghost"}
+                        variant={queuePaths.includes(item.path) ? "default" : "ghost"}
                         size="sm"
                         className={`opacity-0 group-hover:opacity-100 transition-opacity w-full h-6 ${
-                          queueIds.includes(item.name) ? 'opacity-100 bg-green-600 hover:bg-green-700' : ''
+                          queuePaths.includes(item.path) ? 'opacity-100 bg-green-600 hover:bg-green-700' : ''
                         }`}
                         style={{ fontSize: '0.7em' }}
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (!queueIds.includes(item.name)) {
+                          if (!queuePaths.includes(item.path)) {
                             handleAddToQueue(item);
                           }
                         }}
-                        disabled={queueIds.includes(item.name)}
+                        disabled={queuePaths.includes(item.path)}
                       >
-                        {queueIds.includes(item.name) ? (
-                          <>
+                        {queuePaths.includes(item.path) ? (
+                          <div key="in-queue" className="flex items-center justify-center">
                             <Check className="w-3 h-3 mr-1" />
-                            В очереди
-                          </>
+                            <span>В очереди</span>
+                          </div>
                         ) : (
-                          <>
+                          <div key="add-to-queue" className="flex items-center justify-center">
                             <Plus className="w-3 h-3 mr-1" />
-                            Добавить
-                          </>
+                            <span>Добавить</span>
+                          </div>
                         )}
                       </Button>
                     )}
