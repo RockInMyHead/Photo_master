@@ -42,7 +42,6 @@ async def stream():
         q = await registry.subscribe()
     except Exception as e:
         # If subscription fails for some reason, create a dummy queue
-        import asyncio
         q = asyncio.Queue(maxsize=200)
         print(f"SSE: Created dummy queue due to error: {e}")
 

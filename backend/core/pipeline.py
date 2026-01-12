@@ -19,9 +19,8 @@ def collect_images(folder: Path) -> List[Path]:
 
     images = []
     for root, dirs, files in os.walk(folder):
-        # Фильтруем папки: исключаем скрытые (.), SKIP_FOLDERS и цифровые кластеры (папки 1, 2, 3...)
-        # Это предотвращает повторную обработку уже отсортированных фото.
-        dirs[:] = [d for d in dirs if not d.startswith('.') and d.lower() not in SKIP_FOLDERS and not d.isdigit()]
+        # Фильтруем папки: исключаем скрытые (.), SKIP_FOLDERS
+        dirs[:] = [d for d in dirs if not d.startswith('.') and d.lower() not in SKIP_FOLDERS]
 
         for file in files:
             # Исключаем скрытые файлы
