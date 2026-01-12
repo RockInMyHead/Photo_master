@@ -72,11 +72,20 @@ def preview(path: str = Query(...), size: int = 256):
     if cached is not None:
         return Response(content=cached, media_type="image/jpeg", headers={"Cache-Control":"no-store"})
 
-    with Image.open(p) as im:
-        im = im.convert("RGB")
-        im.thumbnail((size, size))
+    try:
+        with Image.open(p) as im:
+            im = im.convert("RGB")
+            im.thumbnail((size, size))
+            buf = io.BytesIO()
+            im.save(buf, format="JPEG", quality=80, optimize=True)
+            data = buf.getvalue()
+    except Exception as e:
+        # If image processing fails, return a placeholder or error
+        print(f"Error processing image {p}: {e}")
+        # Return a simple 1x1 pixel transparent image
         buf = io.BytesIO()
-        im.save(buf, format="JPEG", quality=80, optimize=True)
+        placeholder = Image.new('RGB', (1, 1), color=(200, 200, 200))
+        placeholder.save(buf, format="JPEG", quality=80)
         data = buf.getvalue()
 
     _preview_cache.put(key, data)
