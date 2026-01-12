@@ -1,8 +1,13 @@
 from pathlib import Path
+import os
 from fastapi import HTTPException
 from settings import sandbox_root
 
 def resolve_path(p: str) -> Path:
+    # On Windows, a path like "/C:/..." should be "C:/..."
+    if os.name == "nt" and p.startswith("/") and len(p) > 2 and p[1].lower() in "abcdefghijklmnopqrstuvwxyz" and p[2] == ":":
+        p = p[1:]
+    
     try:
         path = Path(p).expanduser().resolve()
     except Exception:

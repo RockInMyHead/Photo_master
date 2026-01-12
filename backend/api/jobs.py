@@ -35,18 +35,6 @@ async def create_job(req: JobCreateRequest):
 async def list_jobs():
     return await registry.list()
 
-@router.get("/{job_id}", response_model=JobStatus)
-async def get_job(job_id: str):
-    try:
-        return await registry.get(job_id)
-    except KeyError:
-        raise HTTPException(status_code=404, detail="Задача не найдена")
-
-@router.post("/{job_id}/cancel")
-async def cancel_job(job_id: str):
-    await registry.cancel(job_id)
-    return {"ok": True}
-
 @router.get("/stream")
 async def stream():
     # Always create a subscription for EventSource
@@ -91,3 +79,15 @@ async def stream():
     response.headers["Access-Control-Allow-Headers"] = "*"
     response.headers["Access-Control-Allow-Methods"] = "GET"
     return response
+
+@router.get("/{job_id}", response_model=JobStatus)
+async def get_job(job_id: str):
+    try:
+        return await registry.get(job_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Задача не найдена")
+
+@router.post("/{job_id}/cancel")
+async def cancel_job(job_id: str):
+    await registry.cancel(job_id)
+    return {"ok": True}
