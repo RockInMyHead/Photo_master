@@ -134,12 +134,9 @@ const Index = () => {
         };
 
         es.onerror = (error) => {
-          console.warn('❌ EventSource connection error - switching to polling mode:', error);
-          // Close EventSource and rely on polling
-          if (es) {
-            es.close();
-            es = null;
-          }
+          console.warn('❌ EventSource connection error:', error);
+          // Don't immediately close, just log the error
+          // EventSource will automatically try to reconnect
         };
 
         es.onopen = () => {
@@ -225,14 +222,25 @@ const Index = () => {
   const addToQueue = useCallback((handle: FileSystemDirectoryHandle, name: string, path: string) => {
     const id = `${name}-${Date.now()}`;
     console.log(`📋 Добавлена папка в очередь: "${name}" (${path})`);
-    setQueue(prev => [...prev, {
-      id,
-      name,
-      path,
-      handle,
-      status: 'pending',
-    }]);
-    toast.success(`"${name}" добавлена в очередь`);
+
+    // Check if already exists
+    setQueue(prev => {
+      const exists = prev.some(item => item.path === path);
+      if (exists) {
+        toast.warning(`"${name}" уже в очереди`);
+        return prev;
+      }
+
+      const newQueue = [...prev, {
+        id,
+        name,
+        path,
+        handle,
+        status: 'pending' as const,
+      }];
+      toast.success(`"${name}" добавлена в очередь`);
+      return newQueue;
+    });
   }, []);
 
   const removeFromQueue = useCallback((id: string) => {

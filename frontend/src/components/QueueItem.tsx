@@ -62,7 +62,7 @@ export const QueueItemComponent = ({ item, onRemove }: QueueItemProps) => {
   };
 
   return (
-    <div className={`p-3 rounded-xl border transition-all duration-300 animate-slide-in-right ${
+    <div className={`p-3 rounded-xl border transition-all duration-300 ${
       item.status === 'processing' 
         ? 'border-primary/50 bg-accent/30 shadow-sm' 
         : item.status === 'completed'

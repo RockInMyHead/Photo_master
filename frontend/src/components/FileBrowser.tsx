@@ -59,14 +59,39 @@ export const FileBrowser = ({ queueIds, onAddToQueue }: FileBrowserProps) => {
 
   const loadDirectory = async (path: string) => {
     setIsLoading(true);
-    // Ensure path starts with /
-    const normalizedPath = path.startsWith('/') ? path : '/' + path;
+    
+    // Normalize path for Windows/Unix
+    let normalizedPath = path;
+    const isWindowsRoot = /^[A-Za-z]:/.test(path);
+    const hasLeadingSlash = path.startsWith('/');
+    
+    if (isWindowsRoot) {
+      // It's a Windows drive, keep it as is (e.g. "D:/")
+      normalizedPath = path;
+    } else if (hasLeadingSlash) {
+      // It already has a slash, but if it's "/D:/", fix it for Windows
+      if (path.length > 2 && path[2] === ':' && /^\/[A-Za-z]:/.test(path)) {
+        normalizedPath = path.substring(1);
+      } else {
+        normalizedPath = path;
+      }
+    } else {
+      // Unix-like or relative, add leading slash
+      normalizedPath = '/' + path;
+    }
+
     console.log(`📂 Загрузка директории: ${normalizedPath}`);
     try {
       const dirItems = await apiClient.listDirectory(normalizedPath);
       setItems(dirItems);
       setCurrentPath(normalizedPath);
-      setPathSegments(normalizedPath.split('/').filter(Boolean));
+      
+      // Handle path segments for both Windows and Unix paths
+      const segments = /^[A-Za-z]:/.test(normalizedPath) ?
+        normalizedPath.split(/[/\\]/).filter(Boolean) :
+        normalizedPath.split('/').filter(Boolean);
+        
+      setPathSegments(segments);
       console.log(`📂 Загружено ${dirItems.length} элементов в ${normalizedPath}`);
     } catch (error) {
       console.error("❌ Ошибка загрузки директории:", normalizedPath, error);
@@ -92,7 +117,19 @@ export const FileBrowser = ({ queueIds, onAddToQueue }: FileBrowserProps) => {
       return;
     }
 
-    const newPath = '/' + pathSegments.slice(0, index + 1).join('/');
+    const isWindowsPath = pathSegments.length > 0 && pathSegments[0].includes(':');
+    let newPath = '';
+    
+    if (isWindowsPath) {
+      newPath = pathSegments.slice(0, index + 1).join('/');
+      // Ensure it has a trailing slash if it's just the drive letter
+      if (index === 0 && !newPath.endsWith('/')) {
+        newPath += '/';
+      }
+    } else {
+      newPath = '/' + pathSegments.slice(0, index + 1).join('/');
+    }
+    
     loadDirectory(newPath);
   };
 
