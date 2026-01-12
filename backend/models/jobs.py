@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Literal
+from typing import Literal, Optional
 
 class JobCreateRequest(BaseModel):
     path: str
@@ -20,5 +20,5 @@ class JobStatus(BaseModel):
     progress: int = 0
     stage: str = ""
     message: str = ""
-    result: JobResult | None = None
-    error: str | None = None
+    result: Optional[JobResult] = None
+    error: Optional[str] = None

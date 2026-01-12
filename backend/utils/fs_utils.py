@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Optional
 from models.fs import FsEntry
 
 IMG_EXTS = {".jpg",".jpeg",".png",".webp",".bmp",".tif",".tiff"}
@@ -6,7 +7,7 @@ IMG_EXTS = {".jpg",".jpeg",".png",".webp",".bmp",".tif",".tiff"}
 def is_image(p: Path) -> bool:
     return p.suffix.lower() in IMG_EXTS
 
-def find_preview_image(path: Path, depth: int = 0) -> str | None:
+def find_preview_image(path: Path, depth: int = 0) -> Optional[str]:
     if depth > 2:  # Limit recursion depth for performance
         return None
         

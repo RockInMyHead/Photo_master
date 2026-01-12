@@ -53,7 +53,7 @@ class TaskRegistry:
         except Exception as e:
             await self.set_failed(job_id, str(e))
 
-    async def update(self, job_id: str, *, progress: int | None = None, stage: str | None = None, message: str | None = None, result: JobResult | None = None) -> None:
+    async def update(self, job_id: str, *, progress: Optional[int] = None, stage: Optional[str] = None, message: Optional[str] = None, result: Optional[JobResult] = None) -> None:
         async with self._lock:
             job = self._jobs[job_id]
             if progress is not None:

@@ -1,13 +1,13 @@
 from pydantic import BaseModel
-from typing import Literal
+from typing import Literal, Optional
 
 class FsEntry(BaseModel):
     name: str
     path: str
     type: Literal["file","directory"]
-    size: int | None = None
-    mtime: float | None = None
-    preview_path: str | None = None
+    size: Optional[int] = None
+    mtime: Optional[float] = None
+    preview_path: Optional[str] = None
 
 class MoveRequest(BaseModel):
     src: str

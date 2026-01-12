@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 from pathlib import Path
 import os
+from typing import Optional
 
 class Settings(BaseModel):
     SANDBOX_ROOT: str = os.getenv("SANDBOX_ROOT", "")
@@ -9,7 +10,7 @@ class Settings(BaseModel):
 
 settings = Settings()
 
-def sandbox_root() -> Path | None:
+def sandbox_root() -> Optional[Path]:
     if not settings.SANDBOX_ROOT.strip():
         return None
     return Path(settings.SANDBOX_ROOT).expanduser().resolve()
