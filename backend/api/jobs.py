@@ -49,21 +49,32 @@ async def cancel_job(job_id: str):
 
 @router.get("/stream")
 async def stream():
-    # Check if this is an EventSource request
+    # Always create a subscription for EventSource
     try:
         q = await registry.subscribe()
     except Exception as e:
-        # If subscription fails, return error
-        raise HTTPException(status_code=404, detail="Задача не найдена")
+        # If subscription fails for some reason, create a dummy queue
+        import asyncio
+        q = asyncio.Queue(maxsize=200)
+        print(f"SSE: Created dummy queue due to error: {e}")
 
     async def gen():
         try:
+            # Send initial ping
             yield "event: ping\ndata: {}\n\n"
             while True:
-                job_id = await q.get()
-                payload = json.dumps({"job_id": job_id}, ensure_ascii=False)
-                print(f"SSE: Sending update for job {job_id}")
-                yield f"event: update\ndata: {payload}\n\n"
+                try:
+                    # Wait for job updates with timeout
+                    job_id = await asyncio.wait_for(q.get(), timeout=30.0)
+                    payload = json.dumps({"job_id": job_id}, ensure_ascii=False)
+                    print(f"SSE: Sending update for job {job_id}")
+                    yield f"event: update\ndata: {payload}\n\n"
+                except asyncio.TimeoutError:
+                    # Send periodic ping to keep connection alive
+                    yield "event: ping\ndata: {}\n\n"
+                except Exception as e:
+                    print(f"SSE: Error in message loop: {e}")
+                    break
         except Exception as e:
             print(f"SSE error: {e}")
             yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
