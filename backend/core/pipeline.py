@@ -41,26 +41,43 @@ def build_plan_from_faces(faces: List[FaceRecord], labels: List[int]) -> List[Di
             image_to_clusters[fr.image_path].add(int(lbl))
     return [{"path": img, "clusters": sorted(list(cset))} for img, cset in image_to_clusters.items()]
 
-def create_empty_folders(root: Path) -> None:
-    """Создает 2 пустые папки с учетом нумерации существующих папок"""
-    # Находим все папки с числовыми именами
-    numeric_folders = []
+def rename_cluster_folders(root: Path) -> None:
+    """Переименовывает папки кластеров, добавляя количество файлов в скобках"""
+    import os
+
+    # Находим все папки с числовыми именами (кластеры)
+    cluster_folders = []
     for item in root.iterdir():
         if item.is_dir() and item.name.isdigit():
             try:
-                numeric_folders.append(int(item.name))
+                cluster_num = int(item.name)
+                # Считаем количество файлов в папке
+                file_count = len([f for f in item.iterdir() if f.is_file()])
+                if file_count > 0:  # Только если есть файлы
+                    cluster_folders.append((cluster_num, item, file_count))
             except ValueError:
                 continue
-    
-    # Находим максимальный номер
-    max_num = max(numeric_folders) if numeric_folders else 0
-    
-    # Создаем 2 пустые папки
-    for i in range(1, 3):
-        folder_num = max_num + i
-        folder_path = root / str(folder_num)
-        folder_path.mkdir(exist_ok=True)
-        print(f"Created empty folder: {folder_path}")
+
+    # Сортируем по номеру кластера
+    cluster_folders.sort(key=lambda x: x[0])
+
+    # Переименовываем папки, добавляя количество файлов
+    for cluster_num, folder_path, file_count in cluster_folders:
+        new_name = f"{cluster_num} ({file_count})"
+        new_path = folder_path.parent / new_name
+
+        # Проверяем, не существует ли уже такая папка
+        counter = 1
+        while new_path.exists():
+            new_name = f"{cluster_num} ({file_count})_{counter}"
+            new_path = folder_path.parent / new_name
+            counter += 1
+
+        try:
+            folder_path.rename(new_path)
+            print(f"Renamed folder: {folder_path.name} -> {new_name}")
+        except Exception as e:
+            print(f"Failed to rename {folder_path.name}: {e}")
 
 async def process_folder(
     path: Path,
@@ -177,9 +194,9 @@ async def process_folder(
         singletons=singletons,
     )
 
-    # Создаем 2 пустые папки с учетом нумерации
-    progress(95, "Создание пустых папок")
-    await asyncio.to_thread(create_empty_folders, path)
+    # Переименовываем папки кластеров, добавляя количество файлов
+    progress(95, "Переименование папок кластеров")
+    await asyncio.to_thread(rename_cluster_folders, path)
 
     progress(100, "Готово")
     return {**stats, "no_faces": len(no_face_imgs), "unreadable": 0}
