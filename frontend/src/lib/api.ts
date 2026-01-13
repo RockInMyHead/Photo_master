@@ -33,6 +33,24 @@ export interface FileSystemItem {
   preview_path?: string;
 }
 
+export interface ReviewCandidatesResponse {
+  root: string;
+  image_path: string;
+  faces: Array<{
+    face_index: number;
+    bbox: [number, number, number, number];
+    det_score: number;
+    candidates: Array<{
+      cluster_id: number | string;
+      folder_name: string;
+      folder_path: string;
+      score: number;
+      percent: number;
+      example_image?: string | null;
+    }>;
+  }>;
+}
+
 export class ApiClient {
   private baseUrl: string;
 
@@ -133,6 +151,16 @@ export class ApiClient {
       throw new Error(err.detail || `Failed to move: ${response.statusText}`);
     }
 
+    return response.json();
+  }
+
+  async getCandidates(root: string, path: string, topK: number = 5): Promise<ReviewCandidatesResponse> {
+    const url = `${this.baseUrl}/review/candidates?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}&top_k=${topK}`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({} as any));
+      throw new Error(err.detail || `Failed to get candidates: ${response.statusText}`);
+    }
     return response.json();
   }
 

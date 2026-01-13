@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api import fs, jobs
+from api import fs, jobs, review
 
 app = FastAPI(title="Photo Face Sorter API")
 
@@ -21,6 +21,7 @@ async def no_store_api(request, call_next):
 
 app.include_router(fs.router, prefix="/api/fs", tags=["fs"])
 app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
+app.include_router(review.router, prefix="/api/review", tags=["review"])
 
 @app.get("/api/health")
 def health():

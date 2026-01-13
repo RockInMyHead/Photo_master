@@ -1,13 +1,42 @@
 # backend/core/pipeline.py
-from __future__ import annotations
-from pathlib import Path
-from typing import Callable, Dict, List
+import json
+import numpy as np
 import asyncio
+from datetime import datetime
+from typing import Callable, Dict, List
+from pathlib import Path
 
 from utils.fs_utils import IMG_EXTS
 from core.distributor import distribute_plan
 from core.insightface_engine import init_engine, extract_faces_batch, FaceRecord
 from core.quality_cluster import cluster_quality
+
+def save_cluster_index(root: Path, face_recs: List[FaceRecord], labels: List[int]) -> None:
+    # labels: 1..N и -1
+    clusters: dict[str, list[np.ndarray]] = {}
+    for fr, lbl in zip(face_recs, labels):
+        if lbl == -1:
+            continue
+        clusters.setdefault(str(lbl), []).append(fr.embedding)
+
+    out = {
+        "version": 1,
+        "created_at": datetime.utcnow().isoformat() + "Z",
+        "dim": int(face_recs[0].embedding.shape[0]) if face_recs else 0,
+        "clusters": {},
+    }
+
+    for cid, embs in clusters.items():
+        M = np.stack(embs, axis=0).mean(axis=0)
+        M = M / (np.linalg.norm(M) + 1e-12)
+        out["clusters"][cid] = {
+            "centroid": M.astype(np.float32).tolist(),
+            "n_faces": len(embs),
+        }
+
+    idx_dir = root / ".face_index"
+    idx_dir.mkdir(parents=True, exist_ok=True)
+    (idx_dir / "centroids.json").write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
 
 def collect_images(folder: Path) -> List[Path]:
     import os
@@ -179,6 +208,9 @@ async def process_folder(
     uniq = sorted(set([x for x in labels0 if x != -1]))
     remap = {old: i + 1 for i, old in enumerate(uniq)}
     labels = [(remap[x] if x != -1 else -1) for x in labels0]
+
+    progress(70, "Индекс кластеров")
+    await asyncio.to_thread(save_cluster_index, path, face_recs, labels)
 
     progress(75, "План раскладки")
     plan = build_plan_from_faces(face_recs, labels)

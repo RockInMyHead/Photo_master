@@ -1,12 +1,23 @@
 import { useState, useEffect } from "react";
-import { FolderOpen, RefreshCw, Home, File, Plus, Check, Edit2, ZoomIn, ZoomOut, Maximize2 } from "lucide-react";
+import { FolderOpen, RefreshCw, Home, File, Plus, Check, Edit2, ZoomIn, ZoomOut, Maximize2, Move, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Breadcrumbs } from "./Breadcrumbs";
-import { apiClient, previewUrl } from "@/lib/api";
+import { apiClient, previewUrl, ReviewCandidatesResponse } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { Slider } from "@/components/ui/slider";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
 
 interface FileBrowserProps {
   queuePaths: string[];
@@ -33,6 +44,13 @@ export const FileBrowser = ({ queuePaths, onAddToQueue }: FileBrowserProps) => {
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [scale, setScale] = useState(1); // 0.8 to 1.5
+
+  // Review Mode state
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewFile, setReviewFile] = useState<ServerFileItem | null>(null);
+  const [reviewData, setReviewData] = useState<ReviewCandidatesResponse | null>(null);
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [selectedFace, setSelectedFace] = useState(0);
 
   // Initialize with root directories
   useEffect(() => {
@@ -105,6 +123,62 @@ export const FileBrowser = ({ queuePaths, onAddToQueue }: FileBrowserProps) => {
     if (renamingPath) return; // Prevent navigation while renaming
     if (item.type === 'directory') {
       loadDirectory(item.path);
+    }
+  };
+
+  const handleItemClick = async (item: ServerFileItem) => {
+    if (renamingPath) return;
+
+    if (item.type === "directory") {
+      loadDirectory(item.path);
+      return;
+    }
+
+    const isInSingletons = pathSegments.at(-1)?.toLowerCase() === "singletons";
+
+    // review only for images in singletons
+    if (isInSingletons && (item.preview_path || /\.(jpe?g|png|webp|bmp)$/i.test(item.name))) {
+      try {
+        setReviewFile(item);
+        setReviewOpen(true);
+        setReviewLoading(true);
+
+        // root = parent of "singletons"
+        // segments: ["D:", "work", "photos", "singletons"] -> root is "D:/work/photos"
+        const isWindowsPath = pathSegments.length > 0 && pathSegments[0].includes(':');
+        const rootSegments = pathSegments.slice(0, -1);
+        let root = "";
+        if (isWindowsPath) {
+          root = rootSegments.join('/');
+          if (rootSegments.length === 1 && !root.endsWith('/')) root += '/';
+        } else {
+          root = '/' + rootSegments.join('/');
+        }
+
+        console.log(`🔍 Seeking candidates for ${item.path} with root ${root}`);
+        const data = await apiClient.getCandidates(root, item.path, 6);
+
+        setReviewData(data);
+        setSelectedFace(0);
+      } catch (e: any) {
+        console.error("Failed to get review candidates:", e);
+        toast.error(e.message || "Не удалось получить кандидатов");
+      } finally {
+        setReviewLoading(false);
+      }
+    }
+  };
+
+  const handleMoveToCluster = async (src: string, dst: string, folderName: string) => {
+    try {
+      const res = await apiClient.move(src, dst);
+      if (res.ok) {
+        toast.success(`Перемещено в "${folderName}"`);
+        setReviewOpen(false);
+        loadDirectory(currentPath);
+      }
+    } catch (err) {
+      toast.error(`Ошибка перемещения: ${err instanceof Error ? err.message : 'Неизвестная ошибка'}`);
     }
   };
 
@@ -323,7 +397,7 @@ export const FileBrowser = ({ queuePaths, onAddToQueue }: FileBrowserProps) => {
                   dragOverFolder === item.path ? 'ring-2 ring-blue-500 border-blue-500 bg-blue-50/50' :
                   'hover:border-blue-300'
                 }`}
-                onClick={() => navigateToFolder(item)}
+                onClick={() => handleItemClick(item)}
               >
                 <CardContent className="p-3 text-center">
                   <div className="flex flex-col items-center gap-2">
@@ -427,6 +501,170 @@ export const FileBrowser = ({ queuePaths, onAddToQueue }: FileBrowserProps) => {
           </div>
         )}
       </div>
+
+      <Dialog open={reviewOpen} onOpenChange={setReviewOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-0 overflow-hidden">
+          <DialogHeader className="p-6 pb-2">
+            <DialogTitle className="text-xl flex items-center gap-2">
+              <User className="w-5 h-5 text-blue-500" />
+              Режим проверки (Review Mode)
+            </DialogTitle>
+            <DialogDescription>
+              Найдено лиц: {reviewData?.faces.length ?? 0}. Выберите подходящую папку для перемещения.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-1 flex min-h-0 border-t">
+            {/* Left side: Image and Face selection */}
+            <div className="w-1/2 p-6 flex flex-col gap-4 border-r bg-muted/20">
+              <div className="relative aspect-square rounded-xl overflow-hidden bg-black border shadow-inner group">
+                {reviewFile && (
+                  <img
+                    src={previewUrl(reviewFile.preview_path || reviewFile.path, 512)}
+                    alt="Review"
+                    className="w-full h-full object-contain"
+                  />
+                )}
+                
+                {/* Bounding box overlay for selected face */}
+                {!reviewLoading && reviewData && reviewData.faces[selectedFace] && (
+                  <div 
+                    className="absolute border-2 border-yellow-400 shadow-[0_0_0_2px_rgba(0,0,0,0.5)] pointer-events-none"
+                    style={{
+                      left: `${reviewData.faces[selectedFace].bbox[0]}%`,
+                      top: `${reviewData.faces[selectedFace].bbox[1]}%`,
+                      width: `${reviewData.faces[selectedFace].bbox[2] - reviewData.faces[selectedFace].bbox[0]}%`,
+                      height: `${reviewData.faces[selectedFace].bbox[3] - reviewData.faces[selectedFace].bbox[1]}%`,
+                    }}
+                  />
+                )}
+              </div>
+
+              {reviewData && reviewData.faces.length > 1 && (
+                <div className="flex flex-wrap gap-2">
+                  {reviewData.faces.map((face, idx) => (
+                    <Button
+                      key={idx}
+                      variant={selectedFace === idx ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setSelectedFace(idx)}
+                      className="h-8"
+                    >
+                      Лицо {idx + 1} ({Math.round(face.det_score * 100)}%)
+                    </Button>
+                  ))}
+                </div>
+              )}
+
+              <div className="text-xs text-muted-foreground bg-background p-3 rounded-lg border">
+                <p className="font-semibold mb-1">Файл:</p>
+                <p className="break-all">{reviewFile?.name}</p>
+              </div>
+            </div>
+
+            {/* Right side: Candidates */}
+            <div className="w-1/2 flex flex-col min-h-0">
+              <ScrollArea className="flex-1">
+                <div className="p-6 space-y-4">
+                  <h3 className="font-semibold flex items-center gap-2">
+                    Кандидаты для перемещения
+                  </h3>
+                  
+                  {reviewLoading ? (
+                    <div className="space-y-4">
+                      {[1, 2, 3].map(i => (
+                        <div key={i} className="flex gap-3 items-center">
+                          <Skeleton className="w-16 h-16 rounded-lg" />
+                          <div className="space-y-2 flex-1">
+                            <Skeleton className="h-4 w-3/4" />
+                            <Skeleton className="h-3 w-1/2" />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : !reviewData || reviewData.faces.length === 0 ? (
+                    <div className="text-center py-12 text-muted-foreground border-2 border-dashed rounded-xl">
+                      <p>Лиц не обнаружено или индекс не готов</p>
+                    </div>
+                  ) : (
+                    <div className="grid gap-3">
+                      {reviewData.faces[selectedFace].candidates.map((cand, idx) => (
+                        <Card 
+                          key={idx} 
+                          className={`overflow-hidden transition-all hover:border-blue-400 group relative ${
+                            cand.percent >= 72 ? 'border-green-200 bg-green-50/30' : ''
+                          }`}
+                        >
+                          <div className="flex p-3 gap-4 items-center">
+                            <div className="w-16 h-16 rounded-lg bg-muted overflow-hidden border shrink-0">
+                              {cand.example_image ? (
+                                <img
+                                  src={previewUrl(cand.example_image, 128)}
+                                  className="w-full h-full object-cover"
+                                  alt=""
+                                />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center">
+                                  <User className="w-6 h-6 text-muted-foreground/30" />
+                                </div>
+                              )}
+                            </div>
+                            
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="font-bold text-lg leading-none">#{cand.cluster_id}</span>
+                                {cand.percent >= 72 && (
+                                  <Badge variant="secondary" className="bg-green-100 text-green-700 hover:bg-green-100 border-green-200 text-[10px] h-4 px-1">
+                                    Рекомендуем
+                                  </Badge>
+                                )}
+                              </div>
+                              <div className="text-sm text-muted-foreground truncate mb-1">
+                                {cand.folder_name}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                                  <div 
+                                    className={`h-full rounded-full ${
+                                      cand.percent >= 72 ? 'bg-green-500' : 
+                                      cand.percent >= 60 ? 'bg-blue-500' : 'bg-orange-400'
+                                    }`}
+                                    style={{ width: `${cand.percent}%` }}
+                                  />
+                                </div>
+                                <span className="text-xs font-mono font-bold shrink-0">
+                                  {cand.percent}%
+                                </span>
+                              </div>
+                            </div>
+
+                            <Button 
+                              size="sm" 
+                              className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                              onClick={() => handleMoveToCluster(reviewFile!.path, cand.folder_path, cand.folder_name)}
+                            >
+                              <Move className="w-4 h-4 mr-2" />
+                              Сюда
+                            </Button>
+                          </div>
+                        </Card>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </ScrollArea>
+
+              <Separator />
+              
+              <div className="p-4 bg-muted/10 flex justify-end">
+                <Button variant="outline" onClick={() => setReviewOpen(false)}>
+                  Отмена
+                </Button>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
