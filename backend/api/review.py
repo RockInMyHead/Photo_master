@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query
 from pathlib import Path
+from typing import Optional
 import json
 import re
 import numpy as np
@@ -20,7 +21,7 @@ def _load_centroids(root: Path) -> dict:
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Не удалось прочитать индекс кластеров: {e}")
 
-def _find_cluster_folder(root: Path, cid: str) -> Path | None:
+def _find_cluster_folder(root: Path, cid: str) -> Optional[Path]:
     # после rename папки выглядят как "3 (128)" или "3 (128)_1"
     pat = re.compile(rf"^{re.escape(cid)}\b")
     for p in root.iterdir():
@@ -28,7 +29,7 @@ def _find_cluster_folder(root: Path, cid: str) -> Path | None:
             return p
     return None
 
-def _pick_example_image(folder: Path) -> str | None:
+def _pick_example_image(folder: Path) -> Optional[str]:
     for p in folder.iterdir():
         if p.is_file() and p.suffix.lower() in IMG_EXTS:
             return str(p)
