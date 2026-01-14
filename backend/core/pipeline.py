@@ -123,12 +123,12 @@ async def process_folder(
     singletons: bool,
     progress: Callable[[int, str], None],
 ) -> Dict:
-    # Оптимизированные параметры для лучшего объединения
-    link_sim = 0.55  # ниже - легче объединять в кластеры
-    merge_sim = 0.70  # ниже - легче объединять кластеры
-    assign_sim = 0.60  # ниже - легче назначать лица в кластеры
-    min_intra_sim = 0.50
-    assign_margin = 0.03
+    # Консервативные параметры (качество) - ПО ВАШЕМУ ЗАПРОСУ
+    link_sim = 0.64
+    merge_sim = 0.80
+    assign_sim = 0.67
+    min_intra_sim = 0.55
+    assign_margin = 0.04
 
     progress(2, "Подготовка")
     progress(3, "Сканирование файлов")
@@ -242,28 +242,10 @@ async def process_folder(
         singletons=singletons,
     )
 
-    # Гарантируем создание singletons для тестирования Review Mode
+    # Гарантируем создание singletons для тех, кто не прошел порог строгости
     singletons_dir = path / "singletons"
     if singletons and not singletons_dir.exists():
         singletons_dir.mkdir(parents=True, exist_ok=True)
-
-        # Найдем фото с наименьшей уверенностью детекции лица для помещения в singletons
-        if face_recs:
-            # Сортируем лица по убыванию уверенности детекции
-            sorted_faces = sorted(face_recs, key=lambda fr: fr.det_score)
-
-            # Возьмем фото с лицом, но с низкой уверенностью (последние 10-20%)
-            low_conf_faces = sorted_faces[:max(1, len(sorted_faces) // 10)]
-
-            moved_to_singletons = set()
-            for fr in low_conf_faces:
-                img_path = Path(fr.image_path)
-                if str(img_path) not in moved_to_singletons and img_path.exists():
-                    target = singletons_dir / img_path.name
-                    shutil.move(str(img_path), str(target))
-                    moved_to_singletons.add(str(img_path))
-                    print(f"Moved low-confidence face to singletons: {target}")
-                    break  # Достаточно одного фото для тестирования
 
     # Переименовываем папки кластеров, добавляя количество файлов
     progress(95, "Переименование папок кластеров")
