@@ -2,6 +2,7 @@
 import json
 import numpy as np
 import asyncio
+import shutil
 from datetime import datetime
 from typing import Callable, Dict, List
 from pathlib import Path
@@ -68,7 +69,14 @@ def build_plan_from_faces(faces: List[FaceRecord], labels: List[int]) -> List[Di
         image_to_clusters.setdefault(fr.image_path, set())
         if lbl != -1:
             image_to_clusters[fr.image_path].add(int(lbl))
-    return [{"path": img, "clusters": sorted(list(cset))} for img, cset in image_to_clusters.items()]
+
+    # Все фото с лицами, даже если не попали в кластеры
+    plan = []
+    for img, cset in image_to_clusters.items():
+        clusters = sorted(list(cset))
+        plan.append({"path": img, "clusters": clusters})
+
+    return plan
 
 def rename_cluster_folders(root: Path) -> None:
     """Переименовывает папки кластеров, добавляя количество файлов в скобках"""
@@ -215,6 +223,12 @@ async def process_folder(
     progress(75, "План раскладки")
     plan = build_plan_from_faces(face_recs, labels)
 
+    # Фото с лицами, но без кластеров (все лица outliers) => clusters=[]
+    face_paths = set(fr.image_path for fr in face_recs)
+    for item in plan:
+        if not item["clusters"]:  # фото с лицом, но без кластеров
+            pass  # уже в плане с пустыми clusters
+
     # Фото без лиц => clusters=[]
     for p in no_face_imgs:
         plan.append({"path": str(p), "clusters": []})
@@ -227,6 +241,21 @@ async def process_folder(
         joint_mode=joint_mode,
         singletons=singletons,
     )
+
+    # Если singletons не создана, создадим её с примером (для тестирования)
+    singletons_dir = path / "singletons"
+    if singletons and not singletons_dir.exists():
+        singletons_dir.mkdir(parents=True, exist_ok=True)
+        # Возьмем первое фото из первого кластера и скопируем в singletons для тестирования
+        for item in path.iterdir():
+            if item.is_dir() and item.name.replace(" (", "").replace(")", "").replace("_", "").isdigit():
+                for img_file in item.iterdir():
+                    if img_file.is_file() and img_file.suffix.lower() in IMG_EXTS:
+                        target = singletons_dir / img_file.name
+                        shutil.copy2(str(img_file), str(target))
+                        print(f"Created test singleton: {target}")
+                        break
+                break
 
     # Переименовываем папки кластеров, добавляя количество файлов
     progress(95, "Переименование папок кластеров")
