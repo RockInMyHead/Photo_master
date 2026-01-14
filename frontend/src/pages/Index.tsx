@@ -283,7 +283,7 @@ const Index = () => {
         console.log(`📝 Создание задачи для папки: ${item.path}`);
         const job = await apiClient.createJob({
           path: item.path,
-          jointMode: 'copy',
+          jointMode: 'combine',
           includeExcluded: false,
           postValidate: false,
         });
