@@ -75,9 +75,31 @@ def preview(path: str = Query(...), size: int = 256):
     try:
         with Image.open(p) as im:
             im = im.convert("RGB")
-            im.thumbnail((size, size))
+
+            # Calculate new size maintaining aspect ratio
+            width, height = im.size
+            if width > height:
+                new_width = size
+                new_height = int(height * size / width)
+            else:
+                new_height = size
+                new_width = int(width * size / height)
+
+            # Use high-quality resize with Lanczos filter
+            im = im.resize((new_width, new_height), Image.Resampling.LANCZOS)
+
+            # Create square canvas if needed
+            if new_width != size or new_height != size:
+                square_img = Image.new('RGB', (size, size), (255, 255, 255))
+                # Center the image
+                x_offset = (size - new_width) // 2
+                y_offset = (size - new_height) // 2
+                square_img.paste(im, (x_offset, y_offset))
+                im = square_img
+
             buf = io.BytesIO()
-            im.save(buf, format="JPEG", quality=80, optimize=True)
+            # High quality JPEG with better compression settings
+            im.save(buf, format="JPEG", quality=95, optimize=True, progressive=True)
             data = buf.getvalue()
     except Exception as e:
         # If image processing fails, return a placeholder or error

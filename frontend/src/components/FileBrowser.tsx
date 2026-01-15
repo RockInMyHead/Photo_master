@@ -413,8 +413,8 @@ export const FileBrowser = ({ queuePaths, onAddToQueue }: FileBrowserProps) => {
                       }}
                     >
                       {item.preview_path ? (
-                        <img 
-                          src={previewUrl(item.preview_path, 128)} 
+                        <img
+                          src={previewUrl(item.preview_path, 192)}
                           alt={item.name}
                           className="w-full h-full object-cover"
                           loading="lazy"
@@ -520,7 +520,7 @@ export const FileBrowser = ({ queuePaths, onAddToQueue }: FileBrowserProps) => {
               <div className="relative aspect-square rounded-xl overflow-hidden bg-black border shadow-inner group">
                 {reviewFile && (
                   <img
-                    src={previewUrl(reviewFile.preview_path || reviewFile.path, 512)}
+                    src={previewUrl(reviewFile.preview_path || reviewFile.path, 768)}
                     alt="Review"
                     className="w-full h-full object-contain"
                   />
@@ -599,7 +599,7 @@ export const FileBrowser = ({ queuePaths, onAddToQueue }: FileBrowserProps) => {
                             <div className="w-16 h-16 rounded-lg bg-muted overflow-hidden border shrink-0">
                               {cand.example_image ? (
                                 <img
-                                  src={previewUrl(cand.example_image, 128)}
+                                  src={previewUrl(cand.example_image, 192)}
                                   className="w-full h-full object-cover"
                                   alt=""
                                 />

@@ -176,7 +176,7 @@ export async function apiList(path: string): Promise<FileSystemItem[]> {
   return apiClient.listDirectory(path);
 }
 
-export function previewUrl(path: string, size: number = 256): string {
+export function previewUrl(path: string, size: number = 384): string {
   return `${API_BASE}/fs/preview?path=${encodeURIComponent(path)}&size=${size}`;
 }
 
