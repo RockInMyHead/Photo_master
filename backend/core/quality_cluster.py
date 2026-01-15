@@ -37,12 +37,12 @@ def cluster_quality(
     assign_sim: float = 0.68,
     min_intra_sim: float = 0.55,
     assign_margin: float = 0.04,
-) -> Tuple[List[int], List[int]]:
+) -> Tuple[List[int], List[int], List[float]]:
     n = len(embeddings)
     if n == 0:
-        return [], []
+        return [], [], []
     if n == 1:
-        return [0], []
+        return [0], [], [1.0]
 
     # Convert to numpy array if needed
     X = _l2norm_rows(np.asarray(embeddings, dtype=np.float32))
@@ -142,6 +142,16 @@ def cluster_quality(
 
     final = merged.copy()
     final_out = set()
+    confidences = np.zeros(n, dtype=np.float32)  # confidence scores for each face
+    
+    # Calculate confidence for faces already in clusters
+    for i in range(n):
+        if final[i] != -1:
+            # Face already in cluster - calculate similarity to centroid
+            k = int(final[i])
+            confidences[i] = float(C3[k] @ X[i])
+    
+    # Reassign outliers and calculate their confidence
     for i in range(n):
         if final[i] != -1:
             continue
@@ -159,7 +169,9 @@ def cluster_quality(
 
         if best_s >= assign_sim and (best_s - second_s) >= assign_margin:
             final[i] = best_k
+            confidences[i] = best_s
         else:
             final_out.add(i)
+            confidences[i] = best_s  # still store confidence even if rejected
 
-    return final.tolist(), sorted(list(final_out))
+    return final.tolist(), sorted(list(final_out)), confidences.tolist()

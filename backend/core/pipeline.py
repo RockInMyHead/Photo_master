@@ -63,10 +63,18 @@ def collect_images(folder: Path) -> List[Path]:
 
     return images
 
-def build_plan_from_faces(faces: List[FaceRecord], labels: List[int]) -> List[Dict]:
+def build_plan_from_faces(faces: List[FaceRecord], labels: List[int], confidences: List[float]) -> List[Dict]:
     image_to_clusters: Dict[str, set[int]] = {}
-    for fr, lbl in zip(faces, labels):
+    image_to_confidence: Dict[str, float] = {}
+    
+    for fr, lbl, conf in zip(faces, labels, confidences):
         image_to_clusters.setdefault(fr.image_path, set())
+        # Track max confidence for image (in case multiple faces)
+        if fr.image_path not in image_to_confidence:
+            image_to_confidence[fr.image_path] = conf
+        else:
+            image_to_confidence[fr.image_path] = max(image_to_confidence[fr.image_path], conf)
+        
         if lbl != -1:
             image_to_clusters[fr.image_path].add(int(lbl))
 
@@ -74,7 +82,8 @@ def build_plan_from_faces(faces: List[FaceRecord], labels: List[int]) -> List[Di
     plan = []
     for img, cset in image_to_clusters.items():
         clusters = sorted(list(cset))
-        plan.append({"path": img, "clusters": clusters})
+        confidence = image_to_confidence.get(img, 0.0)
+        plan.append({"path": img, "clusters": clusters, "confidence": confidence})
 
     return plan
 
@@ -196,7 +205,7 @@ async def process_folder(
 
     try:
         print(f"Starting clustering with {len(embs_lists)} embeddings")
-        labels0, _out_idx = await asyncio.to_thread(
+        labels0, _out_idx, confidences0 = await asyncio.to_thread(
             cluster_quality,
             embs_lists,
             link_sim=link_sim,
@@ -216,12 +225,13 @@ async def process_folder(
     uniq = sorted(set([x for x in labels0 if x != -1]))
     remap = {old: i + 1 for i, old in enumerate(uniq)}
     labels = [(remap[x] if x != -1 else -1) for x in labels0]
+    # confidences остаются как есть - это similarity scores
 
     progress(70, "Индекс кластеров")
     await asyncio.to_thread(save_cluster_index, path, face_recs, labels)
 
     progress(75, "План раскладки")
-    plan = build_plan_from_faces(face_recs, labels)
+    plan = build_plan_from_faces(face_recs, labels, confidences0)
 
     # Фото с лицами, но без кластеров (все лица outliers) => clusters=[]
     face_paths = set(fr.image_path for fr in face_recs)
@@ -229,9 +239,9 @@ async def process_folder(
         if not item["clusters"]:  # фото с лицом, но без кластеров
             pass  # уже в плане с пустыми clusters
 
-    # Фото без лиц => clusters=[]
+    # Фото без лиц => clusters=[], confidence=0
     for p in no_face_imgs:
-        plan.append({"path": str(p), "clusters": []})
+        plan.append({"path": str(p), "clusters": [], "confidence": 0.0})
 
     progress(90, "Распределение по папкам")
     stats = await asyncio.to_thread(

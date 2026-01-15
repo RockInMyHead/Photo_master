@@ -12,8 +12,10 @@ def distribute_plan(plan: list[dict], root: Path, joint_mode: JointMode = "copy"
     for item in plan:
         img_path = Path(item["path"])
         clusters: list[int] = item.get("clusters", [])
+        confidence: float = item.get("confidence", 0.0)
 
-        if not clusters:
+        # Если confidence < 0.70 или нет кластеров - отправляем в singletons
+        if not clusters or confidence < 0.70:
             if singletons:
                 target = root / "singletons" / img_path.name
                 target.parent.mkdir(parents=True, exist_ok=True)
