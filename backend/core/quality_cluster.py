@@ -32,11 +32,11 @@ class UnionFind:
 def cluster_quality(
     embeddings: List[np.ndarray],
     *,
-    link_sim: float = 0.50,
-    merge_sim: float = 0.65,
-    assign_sim: float = 0.60,
-    min_intra_sim: float = 0.45,
-    assign_margin: float = 0.03,
+    link_sim: float = 0.45,
+    merge_sim: float = 0.55,
+    assign_sim: float = 0.55,
+    min_intra_sim: float = 0.40,
+    assign_margin: float = 0.02,
 ) -> Tuple[List[int], List[int], List[float]]:
     n = len(embeddings)
     if n == 0:
