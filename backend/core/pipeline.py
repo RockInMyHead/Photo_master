@@ -17,14 +17,110 @@ def _l2norm_rows(X: np.ndarray) -> np.ndarray:
     n = np.linalg.norm(X, axis=1, keepdims=True) + 1e-12
     return X / n
 
+def merge_clusters_by_centroids(X, labels, *, merge_centroid_sim=0.62, min_cross_sim=0.56, sample_k=30):
+    """Merge clusters with similar centroids (for same person split across clusters)"""
+    labels = np.asarray(labels, dtype=int)
+    cl_ids = sorted({int(x) for x in labels if x != -1})
+    if len(cl_ids) <= 1:
+        return labels.tolist()
+
+    # собрать индексы
+    idxs = {c: np.where(labels == c)[0] for c in cl_ids}
+
+    # центроиды
+    centroids = {}
+    for c in cl_ids:
+        C = X[idxs[c]].mean(axis=0)
+        C = C / (np.linalg.norm(C) + 1e-12)
+        centroids[c] = C
+
+    # DSU
+    parent = {c: c for c in cl_ids}
+    def find(a):
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+    def union(a,b):
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[rb] = ra
+
+    # проверка пар
+    Cmat = np.stack([centroids[c] for c in cl_ids], axis=0)
+    S = Cmat @ Cmat.T  # cosine sim
+
+    for i, ci in enumerate(cl_ids):
+        for j in range(i+1, len(cl_ids)):
+            cj = cl_ids[j]
+            if S[i, j] < merge_centroid_sim:
+                continue
+
+            # доп. защита: проверить "перекрёстную" близость на подвыборке лиц
+            ai = idxs[ci]
+            aj = idxs[cj]
+            si = ai[:sample_k]
+            sj = aj[:sample_k]
+            if len(si) == 0 or len(sj) == 0:
+                continue
+            cross = X[si] @ X[sj].T
+            if float(np.max(cross)) >= min_cross_sim:
+                union(ci, cj)
+
+    # применить union
+    rep = {c: find(c) for c in cl_ids}
+    out = labels.copy()
+    for c in cl_ids:
+        out[labels == c] = rep[c]
+    return out.tolist()
+
+def send_ambiguous_small_clusters_to_singletons(X, labels, *, gray_low=0.56, gray_high=0.62, small_ratio=0.35):
+    """Send small clusters that are similar to larger ones to singletons (ambiguous cases)"""
+    labels = np.asarray(labels, dtype=int)
+    cl_ids = sorted({int(x) for x in labels if x != -1})
+    if len(cl_ids) <= 1:
+        return labels.tolist()
+
+    idxs = {c: np.where(labels == c)[0] for c in cl_ids}
+    cents = {}
+    for c in cl_ids:
+        C = X[idxs[c]].mean(axis=0)
+        C = C / (np.linalg.norm(C) + 1e-12)
+        cents[c] = C
+
+    Cmat = np.stack([cents[c] for c in cl_ids], axis=0)
+    S = Cmat @ Cmat.T
+    np.fill_diagonal(S, -1)
+
+    for i, ci in enumerate(cl_ids):
+        j = int(np.argmax(S[i]))
+        sim = float(S[i, j])
+        cj = cl_ids[j]
+
+        if gray_low <= sim < gray_high:
+            si = len(idxs[ci])
+            sj = len(idxs[cj])
+            # если кластер заметно меньше похожего соседа — это кандидат на singletons/review
+            if si <= max(2, int(sj * small_ratio)):
+                labels[idxs[ci]] = -1
+
+    return labels.tolist()
+
+def remap_labels_keep_minus1(labels):
+    """Remap cluster labels while preserving -1 (singletons)"""
+    labels = list(labels)
+    uniq = sorted({x for x in labels if x != -1})
+    mp = {old: i+1 for i, old in enumerate(uniq)}
+    return [(-1 if x == -1 else mp[x]) for x in labels]
+
 def apply_confidence_gating(
     embeddings: np.ndarray,             # (N, D) L2-normed
     labels: List[int],                  # -1 or 1..K (или 0..K-1 — неважно, главное не -1)
     *,
-    keep_sim: float = 0.48,             # порог "лицо уверенно в своём кластере"
+    keep_sim: float = 0.60,             # повышенный порог - строже
     min_cluster_size: int = 3,          # всё, что меньше — подозрительно
-    small_cluster_keep_sim: float = 0.54,  # более строгий порог для маленьких кластеров
-    min_cluster_mean_sim: float = 0.50,    # средняя плотность кластера к центроиду
+    small_cluster_keep_sim: float = 0.67,  # строже для маленьких кластеров
+    min_cluster_mean_sim: float = 0.62,    # повышенная плотность
 ) -> Tuple[List[int], Dict[int, Dict[str, float]]]:
     """
     Возвращает новые labels и метрики по кластерам.
@@ -148,59 +244,30 @@ def collect_images(folder: Path) -> List[Path]:
     return images
 
 def build_plan_from_faces(faces: List[FaceRecord], labels: List[int], confidences: Optional[List[float]]) -> List[Dict]:
-    image_to_clusters: Dict[str, set[int]] = {}
-    image_to_confidence: Dict[str, float] = {}
+    image_to_faces: Dict[str, List[Tuple[FaceRecord, int, Optional[float]]]] = {}
 
-    if confidences is not None:
-        # Используем предоставленные confidences
-        for fr, lbl, conf in zip(faces, labels, confidences):
-            image_to_clusters.setdefault(fr.image_path, set())
-            # Track max confidence for image (in case multiple faces)
-            if fr.image_path not in image_to_confidence:
-                image_to_confidence[fr.image_path] = conf
-            else:
-                image_to_confidence[fr.image_path] = max(image_to_confidence[fr.image_path], conf)
+    # Группируем лица по изображениям
+    for i, (fr, lbl) in enumerate(zip(faces, labels)):
+        conf = confidences[i] if confidences else None
+        image_to_faces.setdefault(fr.image_path, []).append((fr, lbl, conf))
 
-            if lbl != -1:
-                image_to_clusters[fr.image_path].add(int(lbl))
-    else:
-        # Рассчитываем confidence заново для текущих labels
-        # Группируем лица по кластерам
-        by_cluster = defaultdict(list)
-        for i, (fr, lbl) in enumerate(zip(faces, labels)):
-            if lbl != -1:
-                by_cluster[lbl].append((i, fr))
-
-        # Рассчитываем центроиды и confidence
-        embeddings = np.asarray([fr.embedding for fr in faces], dtype=np.float32)
-        embeddings = _l2norm_rows(embeddings)
-
-        for lbl, face_list in by_cluster.items():
-            if not face_list:
-                continue
-            # Центроид кластера
-            idxs = [i for i, _ in face_list]
-            centroid = embeddings[idxs].mean(axis=0)
-            centroid = centroid / (np.linalg.norm(centroid) + 1e-12)
-
-            # Confidence для каждого лица в кластере
-            for i, fr in face_list:
-                conf = float(embeddings[i] @ centroid)
-                image_path = fr.image_path
-
-                if image_path not in image_to_confidence:
-                    image_to_confidence[image_path] = conf
-                else:
-                    image_to_confidence[image_path] = max(image_to_confidence[image_path], conf)
-
-                image_to_clusters.setdefault(image_path, set()).add(int(lbl))
-
-    # Все фото с лицами, даже если не попали в кластеры
     plan = []
-    for img, cset in image_to_clusters.items():
-        clusters = sorted(list(cset))
-        confidence = image_to_confidence.get(img, 0.0)
-        plan.append({"path": img, "clusters": clusters, "confidence": confidence})
+    for img_path, face_data in image_to_faces.items():
+        face_labels = [lbl for _, lbl, _ in face_data]
+
+        # Правило: если фото имеет лица в разных кластерах ИЛИ есть -1 -> singletons
+        unique_labels = set(face_labels)
+        has_minus1 = -1 in unique_labels
+        multiple_clusters = len([l for l in unique_labels if l != -1]) > 1
+
+        if has_minus1 or multiple_clusters:
+            # Фото идет в singletons для ручной проверки
+            plan.append({"path": img_path, "clusters": [], "confidence": 0.0})
+        else:
+            # Все лица в одном кластере - нормальное распределение
+            cluster = list(unique_labels)[0] if unique_labels else -1
+            confidence = max([c for _, _, c in face_data if c is not None], default=1.0)
+            plan.append({"path": img_path, "clusters": [cluster] if cluster != -1 else [], "confidence": confidence})
 
     return plan
 
@@ -337,24 +404,34 @@ async def process_folder(
         X = np.asarray([fr.embedding for fr in face_recs], dtype=np.float32)
         X = _l2norm_rows(X)
 
+        labels_before_gating = labels0.copy()
         labels0, cluster_metrics = apply_confidence_gating(
             X, labels0,
-            keep_sim=0.48,              # порог уверенности для лица в кластере
+            keep_sim=0.60,              # повышенный порог - строже
             min_cluster_size=3,          # кластеры меньше этого размера подозрительны
-            small_cluster_keep_sim=0.54, # строже для маленьких кластеров
-            min_cluster_mean_sim=0.50,   # минимальная плотность кластера
+            small_cluster_keep_sim=0.67, # строже для маленьких кластеров
+            min_cluster_mean_sim=0.62,   # повышенная плотность
         )
-        print(f"After confidence gating: {len(set([l for l in labels0 if l != -1]))} clusters, {len([l for l in labels0 if l == -1])} faces in singletons")
+
+        print(f"Clustering stats:")
+        print(f"  - Before gating: {len(set([l for l in labels_before_gating if l != -1]))} clusters")
+        print(f"  - After gating: {len(set([l for l in labels0 if l != -1]))} clusters, {len([l for l in labels0 if l == -1])} faces marked as -1")
+
+        # ДОБАВИТЬ: Merge кластеров по центроидам (для объединения одного человека)
+        labels0 = merge_clusters_by_centroids(X, labels0, merge_centroid_sim=0.62, min_cross_sim=0.56)
+        print(f"  - After centroid merge: {len(set([l for l in labels0 if l != -1]))} clusters")
+
+        # ДОБАВИТЬ: Серые случаи - маленькие похожие кластеры в singletons
+        labels0 = send_ambiguous_small_clusters_to_singletons(X, labels0, gray_low=0.56, gray_high=0.62, small_ratio=0.35)
+        print(f"  - After ambiguous filtering: {len(set([l for l in labels0 if l != -1]))} clusters, {len([l for l in labels0 if l == -1])} total faces in singletons")
     except Exception as e:
         print(f"Error in clustering: {e}")
         import traceback
         traceback.print_exc()
         raise
 
-    # Папки 1..N (после confidence gating)
-    uniq = sorted(set([x for x in labels0 if x != -1]))
-    remap = {old: i + 1 for i, old in enumerate(uniq)}
-    labels = [(remap[x] if x != -1 else -1) for x in labels0]
+    # Папки 1..N (после всех стадий обработки) - сохраняем -1
+    labels = remap_labels_keep_minus1(labels0)
 
     progress(70, "Индекс кластеров")
     await asyncio.to_thread(save_cluster_index, path, face_recs, labels)
