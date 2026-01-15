@@ -4,7 +4,7 @@ import numpy as np
 import asyncio
 import shutil
 from datetime import datetime
-from typing import Callable, Dict, List, Tuple
+from typing import Callable, Dict, List, Tuple, Optional
 from pathlib import Path
 from collections import defaultdict
 
@@ -147,7 +147,7 @@ def collect_images(folder: Path) -> List[Path]:
 
     return images
 
-def build_plan_from_faces(faces: List[FaceRecord], labels: List[int], confidences: List[float] | None) -> List[Dict]:
+def build_plan_from_faces(faces: List[FaceRecord], labels: List[int], confidences: Optional[List[float]]) -> List[Dict]:
     image_to_clusters: Dict[str, set[int]] = {}
     image_to_confidence: Dict[str, float] = {}
 

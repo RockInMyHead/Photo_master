@@ -2,7 +2,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Tuple
+from typing import Iterable, List, Tuple, Optional
 import numpy as np
 import cv2
 
@@ -20,7 +20,7 @@ def _l2norm(x: np.ndarray) -> np.ndarray:
     n = float(np.linalg.norm(x))
     return x if n <= 1e-12 else (x / n)
 
-def _tta_embedding(app, img_bgr, face) -> np.ndarray | None:
+def _tta_embedding(app, img_bgr, face) -> Optional[np.ndarray]:
     # recognition model доступен как app.models['recognition'] (dict taskname->model)
     rec = getattr(app, "models", {}).get("recognition")
     if rec is None or getattr(face, "kps", None) is None:
