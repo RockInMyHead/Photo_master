@@ -14,9 +14,9 @@ def distribute_plan(plan: list[dict], root: Path, joint_mode: JointMode = "copy"
         clusters: list[int] = item.get("clusters", [])
         confidence: float = item.get("confidence", 0.0)
 
-        # Если confidence < 0.80 или нет кластеров - отправляем в singletons
-        # Повысили до 0.80, чтобы сомнительные (очки/борода) чаще шли на ручную проверку
-        if not clusters or confidence < 0.80:
+        # После confidence gating: если нет кластеров - значит фото в singletons
+        # confidence уже учтён в gating, так что просто проверяем наличие кластеров
+        if not clusters:
             if singletons:
                 target = root / "singletons" / img_path.name
                 target.parent.mkdir(parents=True, exist_ok=True)

@@ -4,13 +4,97 @@ import numpy as np
 import asyncio
 import shutil
 from datetime import datetime
-from typing import Callable, Dict, List
+from typing import Callable, Dict, List, Tuple
 from pathlib import Path
+from collections import defaultdict
 
 from utils.fs_utils import IMG_EXTS
 from core.distributor import distribute_plan
 from core.insightface_engine import init_engine, extract_faces_batch, FaceRecord
 from core.quality_cluster import cluster_quality
+
+def _l2norm_rows(X: np.ndarray) -> np.ndarray:
+    n = np.linalg.norm(X, axis=1, keepdims=True) + 1e-12
+    return X / n
+
+def apply_confidence_gating(
+    embeddings: np.ndarray,             # (N, D) L2-normed
+    labels: List[int],                  # -1 or 1..K (или 0..K-1 — неважно, главное не -1)
+    *,
+    keep_sim: float = 0.48,             # порог "лицо уверенно в своём кластере"
+    min_cluster_size: int = 3,          # всё, что меньше — подозрительно
+    small_cluster_keep_sim: float = 0.54,  # более строгий порог для маленьких кластеров
+    min_cluster_mean_sim: float = 0.50,    # средняя плотность кластера к центроиду
+) -> Tuple[List[int], Dict[int, Dict[str, float]]]:
+    """
+    Возвращает новые labels и метрики по кластерам.
+    Логика:
+      - если sim(face, centroid(label)) < keep_sim -> label=-1
+      - если кластер маленький и не плотный -> все его элементы label=-1
+    """
+    labels = list(labels)
+    n = embeddings.shape[0]
+    if n == 0:
+        return labels, {}
+
+    # собрать индексы по кластерам (игнорируем -1)
+    by_cluster = defaultdict(list)
+    for i, lbl in enumerate(labels):
+        if lbl != -1:
+            by_cluster[lbl].append(i)
+
+    if not by_cluster:
+        return labels, {}
+
+    # центроиды
+    centroids: Dict[int, np.ndarray] = {}
+    for lbl, idxs in by_cluster.items():
+        C = embeddings[idxs].mean(axis=0)
+        C = C / (np.linalg.norm(C) + 1e-12)
+        centroids[lbl] = C
+
+    # sim каждого лица к центроиду своего кластера
+    sim_to_own = np.full((n,), -1.0, dtype=np.float32)
+    for lbl, idxs in by_cluster.items():
+        C = centroids[lbl]
+        sims = embeddings[idxs] @ C
+        sim_to_own[idxs] = sims
+
+    # метрики кластеров
+    metrics = {}
+    for lbl, idxs in by_cluster.items():
+        mean_sim = float(sim_to_own[idxs].mean()) if idxs else 0.0
+        min_sim = float(sim_to_own[idxs].min()) if idxs else 0.0
+        metrics[lbl] = {
+            "size": float(len(idxs)),
+            "mean_sim": mean_sim,
+            "min_sim": min_sim,
+        }
+
+    # 1) выброс лиц с низкой уверенностью
+    for i, lbl in enumerate(labels):
+        if lbl == -1:
+            continue
+        thr = small_cluster_keep_sim if len(by_cluster[lbl]) < min_cluster_size else keep_sim
+        if sim_to_own[i] < thr:
+            labels[i] = -1
+
+    # 2) выброс маленьких/рыхлых кластеров целиком
+    # пересобираем after face-level filtering
+    by_cluster2 = defaultdict(list)
+    for i, lbl in enumerate(labels):
+        if lbl != -1:
+            by_cluster2[lbl].append(i)
+
+    for lbl, idxs in by_cluster2.items():
+        if len(idxs) < min_cluster_size:
+            # кластер маленький — оставляем только если он очень плотный
+            mean_sim = float((embeddings[idxs] @ centroids[lbl]).mean())
+            if mean_sim < min_cluster_mean_sim:
+                for i in idxs:
+                    labels[i] = -1
+
+    return labels, metrics
 
 def save_cluster_index(root: Path, face_recs: List[FaceRecord], labels: List[int]) -> None:
     # labels: 1..N и -1
@@ -63,20 +147,53 @@ def collect_images(folder: Path) -> List[Path]:
 
     return images
 
-def build_plan_from_faces(faces: List[FaceRecord], labels: List[int], confidences: List[float]) -> List[Dict]:
+def build_plan_from_faces(faces: List[FaceRecord], labels: List[int], confidences: List[float] | None) -> List[Dict]:
     image_to_clusters: Dict[str, set[int]] = {}
     image_to_confidence: Dict[str, float] = {}
-    
-    for fr, lbl, conf in zip(faces, labels, confidences):
-        image_to_clusters.setdefault(fr.image_path, set())
-        # Track max confidence for image (in case multiple faces)
-        if fr.image_path not in image_to_confidence:
-            image_to_confidence[fr.image_path] = conf
-        else:
-            image_to_confidence[fr.image_path] = max(image_to_confidence[fr.image_path], conf)
-        
-        if lbl != -1:
-            image_to_clusters[fr.image_path].add(int(lbl))
+
+    if confidences is not None:
+        # Используем предоставленные confidences
+        for fr, lbl, conf in zip(faces, labels, confidences):
+            image_to_clusters.setdefault(fr.image_path, set())
+            # Track max confidence for image (in case multiple faces)
+            if fr.image_path not in image_to_confidence:
+                image_to_confidence[fr.image_path] = conf
+            else:
+                image_to_confidence[fr.image_path] = max(image_to_confidence[fr.image_path], conf)
+
+            if lbl != -1:
+                image_to_clusters[fr.image_path].add(int(lbl))
+    else:
+        # Рассчитываем confidence заново для текущих labels
+        # Группируем лица по кластерам
+        by_cluster = defaultdict(list)
+        for i, (fr, lbl) in enumerate(zip(faces, labels)):
+            if lbl != -1:
+                by_cluster[lbl].append((i, fr))
+
+        # Рассчитываем центроиды и confidence
+        embeddings = np.asarray([fr.embedding for fr in faces], dtype=np.float32)
+        embeddings = _l2norm_rows(embeddings)
+
+        for lbl, face_list in by_cluster.items():
+            if not face_list:
+                continue
+            # Центроид кластера
+            idxs = [i for i, _ in face_list]
+            centroid = embeddings[idxs].mean(axis=0)
+            centroid = centroid / (np.linalg.norm(centroid) + 1e-12)
+
+            # Confidence для каждого лица в кластере
+            for i, fr in face_list:
+                conf = float(embeddings[i] @ centroid)
+                image_path = fr.image_path
+
+                if image_path not in image_to_confidence:
+                    image_to_confidence[image_path] = conf
+                else:
+                    image_to_confidence[image_path] = max(image_to_confidence[image_path], conf)
+
+                image_to_clusters.setdefault(image_path, set()).add(int(lbl))
 
     # Все фото с лицами, даже если не попали в кластеры
     plan = []
@@ -215,23 +332,37 @@ async def process_folder(
             assign_margin=assign_margin,
         )
         print(f"Clustering completed: {len(set(labels0))} clusters, {len(_out_idx)} outliers")
+
+        # Применяем confidence gating для фильтрации сомнительных лиц/кластеров
+        X = np.asarray([fr.embedding for fr in face_recs], dtype=np.float32)
+        X = _l2norm_rows(X)
+
+        labels0, cluster_metrics = apply_confidence_gating(
+            X, labels0,
+            keep_sim=0.48,              # порог уверенности для лица в кластере
+            min_cluster_size=3,          # кластеры меньше этого размера подозрительны
+            small_cluster_keep_sim=0.54, # строже для маленьких кластеров
+            min_cluster_mean_sim=0.50,   # минимальная плотность кластера
+        )
+        print(f"After confidence gating: {len(set([l for l in labels0 if l != -1]))} clusters, {len([l for l in labels0 if l == -1])} faces in singletons")
     except Exception as e:
         print(f"Error in clustering: {e}")
         import traceback
         traceback.print_exc()
         raise
 
-    # Папки 1..N
+    # Папки 1..N (после confidence gating)
     uniq = sorted(set([x for x in labels0 if x != -1]))
     remap = {old: i + 1 for i, old in enumerate(uniq)}
     labels = [(remap[x] if x != -1 else -1) for x in labels0]
-    # confidences остаются как есть - это similarity scores
 
     progress(70, "Индекс кластеров")
     await asyncio.to_thread(save_cluster_index, path, face_recs, labels)
 
     progress(75, "План раскладки")
-    plan = build_plan_from_faces(face_recs, labels, confidences0)
+    # После confidence gating confidences0 больше не актуальны, поэтому передаем None
+    # build_plan_from_faces сама рассчитает confidence для оставшихся кластеров
+    plan = build_plan_from_faces(face_recs, labels, None)
 
     # Фото с лицами, но без кластеров (все лица outliers) => clusters=[]
     face_paths = set(fr.image_path for fr in face_recs)
