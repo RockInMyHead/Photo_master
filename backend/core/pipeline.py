@@ -407,10 +407,10 @@ async def process_folder(
         labels_before_gating = labels0.copy()
         labels0, cluster_metrics = apply_confidence_gating(
             X, labels0,
-            keep_sim=0.60,              # повышенный порог - строже
+            keep_sim=0.55,              # чуть мягче, чтобы сохранить лица для мерджа
             min_cluster_size=3,          # кластеры меньше этого размера подозрительны
-            small_cluster_keep_sim=0.67, # строже для маленьких кластеров
-            min_cluster_mean_sim=0.62,   # повышенная плотность
+            small_cluster_keep_sim=0.62, # чуть мягче
+            min_cluster_mean_sim=0.58,   # чуть мягче
         )
 
         print(f"Clustering stats:")
@@ -418,11 +418,11 @@ async def process_folder(
         print(f"  - After gating: {len(set([l for l in labels0 if l != -1]))} clusters, {len([l for l in labels0 if l == -1])} faces marked as -1")
 
         # ДОБАВИТЬ: Merge кластеров по центроидам (для объединения одного человека)
-        labels0 = merge_clusters_by_centroids(X, labels0, merge_centroid_sim=0.62, min_cross_sim=0.56)
+        labels0 = merge_clusters_by_centroids(X, labels0, merge_centroid_sim=0.58, min_cross_sim=0.52)
         print(f"  - After centroid merge: {len(set([l for l in labels0 if l != -1]))} clusters")
 
         # ДОБАВИТЬ: Серые случаи - маленькие похожие кластеры в singletons
-        labels0 = send_ambiguous_small_clusters_to_singletons(X, labels0, gray_low=0.56, gray_high=0.62, small_ratio=0.35)
+        labels0 = send_ambiguous_small_clusters_to_singletons(X, labels0, gray_low=0.52, gray_high=0.58, small_ratio=0.40)
         print(f"  - After ambiguous filtering: {len(set([l for l in labels0 if l != -1]))} clusters, {len([l for l in labels0 if l == -1])} total faces in singletons")
     except Exception as e:
         print(f"Error in clustering: {e}")
