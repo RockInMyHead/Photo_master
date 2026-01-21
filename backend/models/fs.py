@@ -12,3 +12,9 @@ class FsEntry(BaseModel):
 class MoveRequest(BaseModel):
     src: str
     dst: str
+
+class CreateFoldersRequest(BaseModel):
+    path: str
+
+class UpdateCountsRequest(BaseModel):
+    path: str

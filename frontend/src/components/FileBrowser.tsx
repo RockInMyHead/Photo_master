@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { FolderOpen, RefreshCw, Home, File, Plus, Check, Edit2, ZoomIn, ZoomOut, Maximize2, Move, User } from "lucide-react";
+import { FolderOpen, RefreshCw, Home, File, Plus, Check, Edit2, ZoomIn, ZoomOut, Maximize2, Move, User, FolderPlus, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Breadcrumbs } from "./Breadcrumbs";
 import { apiClient, previewUrl, ReviewCandidatesResponse } from "@/lib/api";
@@ -171,11 +171,28 @@ export const FileBrowser = ({ queuePaths, onAddToQueue }: FileBrowserProps) => {
 
   const handleMoveToCluster = async (src: string, dst: string, folderName: string) => {
     try {
-      const res = await apiClient.move(src, dst);
-      if (res.ok) {
-        toast.success(`Перемещено в "${folderName}"`);
-        setReviewOpen(false);
-        loadDirectory(currentPath);
+      // Если на фото несколько лиц, копируем файл вместо перемещения
+      const hasMultipleFaces = reviewData && reviewData.faces.length > 1;
+      const hasUnprocessedFaces = reviewData && reviewData.faces.some((f, idx) => 
+        idx !== selectedFace && f.candidates.length > 0
+      );
+
+      if (hasMultipleFaces && hasUnprocessedFaces) {
+        // Копируем файл, чтобы он остался для обработки других лиц
+        const copyRes = await apiClient.copy(src, dst);
+        if (copyRes.ok) {
+          toast.success(`Скопировано в "${folderName}" (фото осталось для обработки других лиц)`);
+          // Не закрываем модалку и не обновляем директорию
+          return;
+        }
+      } else {
+        // Перемещаем файл, если это последнее лицо или единственное лицо
+        const res = await apiClient.move(src, dst);
+        if (res.ok) {
+          toast.success(`Перемещено в "${folderName}"`);
+          setReviewOpen(false);
+          loadDirectory(currentPath);
+        }
       }
     } catch (err) {
       toast.error(`Ошибка перемещения: ${err instanceof Error ? err.message : 'Неизвестная ошибка'}`);
@@ -292,6 +309,32 @@ export const FileBrowser = ({ queuePaths, onAddToQueue }: FileBrowserProps) => {
     }
   };
 
+  const handleCreateFolders = async () => {
+    if (!currentPath) return;
+
+    try {
+      const res = await apiClient.createFolders(currentPath);
+      toast.success(res.message || `Созданы папки: ${res.created.join(', ')}`);
+      loadDirectory(currentPath);
+    } catch (err) {
+      console.error("Ошибка при создании папок:", err);
+      toast.error(`Ошибка: ${err instanceof Error ? err.message : 'Неизвестная ошибка'}`);
+    }
+  };
+
+  const handleUpdateCounts = async () => {
+    if (!currentPath) return;
+
+    try {
+      const res = await apiClient.updateCounts(currentPath);
+      toast.success(res.message || `Обновлено папок: ${res.updated.length}`);
+      loadDirectory(currentPath);
+    } catch (err) {
+      console.error("Ошибка при пересчете:", err);
+      toast.error(`Ошибка: ${err instanceof Error ? err.message : 'Неизвестная ошибка'}`);
+    }
+  };
+
   if (!isInitialized) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -365,6 +408,32 @@ export const FileBrowser = ({ queuePaths, onAddToQueue }: FileBrowserProps) => {
         >
           <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
         </Button>
+
+        {currentPath && (
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleCreateFolders}
+              disabled={isLoading}
+              className="flex items-center gap-2"
+            >
+              <FolderPlus className="w-4 h-4" />
+              Создать папки
+            </Button>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleUpdateCounts}
+              disabled={isLoading}
+              className="flex items-center gap-2"
+            >
+              <RotateCcw className="w-4 h-4" />
+              Пересчитать
+            </Button>
+          </>
+        )}
         </div>
       </div>
 
@@ -570,11 +639,11 @@ export const FileBrowser = ({ queuePaths, onAddToQueue }: FileBrowserProps) => {
                     Кандидаты для перемещения
                   </h3>
                   
-                  {reviewLoading ? (
+                      {reviewLoading ? (
                     <div className="space-y-4">
                       {[1, 2, 3].map(i => (
                         <div key={i} className="flex gap-3 items-center">
-                          <Skeleton className="w-16 h-16 rounded-lg" />
+                          <Skeleton className="w-20 h-20 rounded-lg" />
                           <div className="space-y-2 flex-1">
                             <Skeleton className="h-4 w-3/4" />
                             <Skeleton className="h-3 w-1/2" />
@@ -589,23 +658,23 @@ export const FileBrowser = ({ queuePaths, onAddToQueue }: FileBrowserProps) => {
                   ) : (
                     <div className="grid gap-3">
                       {reviewData.faces[selectedFace].candidates.map((cand, idx) => (
-                        <Card 
+                          <Card 
                           key={idx} 
                           className={`overflow-hidden transition-all hover:border-blue-400 group relative ${
                             cand.percent >= 72 ? 'border-green-200 bg-green-50/30' : ''
                           }`}
                         >
                           <div className="flex p-3 gap-4 items-center">
-                            <div className="w-16 h-16 rounded-lg bg-muted overflow-hidden border shrink-0">
+                            <div className="w-20 h-20 rounded-lg bg-muted overflow-hidden border shrink-0">
                               {cand.example_image ? (
                                 <img
-                                  src={previewUrl(cand.example_image, 192)}
+                                  src={previewUrl(cand.example_image, 320)}
                                   className="w-full h-full object-cover"
                                   alt=""
                                 />
                               ) : (
                                 <div className="w-full h-full flex items-center justify-center">
-                                  <User className="w-6 h-6 text-muted-foreground/30" />
+                                  <User className="w-10 h-10 text-muted-foreground/30" />
                                 </div>
                               )}
                             </div>

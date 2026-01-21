@@ -154,6 +154,23 @@ export class ApiClient {
     return response.json();
   }
 
+  async copy(src: string, dst: string): Promise<{ ok: boolean; new_path: string }> {
+    const response = await fetch(`${this.baseUrl}/fs/copy`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ src, dst }),
+    });
+
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err.detail || `Failed to copy: ${response.statusText}`);
+    }
+
+    return response.json();
+  }
+
   async getCandidates(root: string, path: string, topK: number = 5): Promise<ReviewCandidatesResponse> {
     const url = `${this.baseUrl}/review/candidates?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}&top_k=${topK}`;
     const response = await fetch(url);
@@ -161,6 +178,40 @@ export class ApiClient {
       const err = await response.json().catch(() => ({} as any));
       throw new Error(err.detail || `Failed to get candidates: ${response.statusText}`);
     }
+    return response.json();
+  }
+
+  async createFolders(path: string): Promise<{ success: boolean; created: string[]; message: string }> {
+    const response = await fetch(`${this.baseUrl}/fs/create-folders`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ path }),
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({} as any));
+      throw new Error(err.detail || `Failed to create folders: ${response.statusText}`);
+    }
+
+    return response.json();
+  }
+
+  async updateCounts(path: string): Promise<{ success: boolean; updated: Array<{old: string, new: string}>; message: string }> {
+    const response = await fetch(`${this.baseUrl}/fs/update-counts`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ path }),
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({} as any));
+      throw new Error(err.detail || `Failed to update counts: ${response.statusText}`);
+    }
+
     return response.json();
   }
 

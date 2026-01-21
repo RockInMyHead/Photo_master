@@ -10,7 +10,7 @@ from utils.fs_utils import list_directory, is_image
 from utils.preview_cache import PreviewCache, CacheKey
 from settings import settings
 from utils.roots import list_roots
-from models.fs import MoveRequest
+from models.fs import MoveRequest, CreateFoldersRequest, UpdateCountsRequest
 
 router = APIRouter()
 _preview_cache = PreviewCache(max_items=settings.PREVIEW_CACHE_MAX_ITEMS)
@@ -43,6 +43,24 @@ def move_file(req: MoveRequest):
         return {"ok": True, "new_path": str(dst)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ошибка перемещения: {str(e)}")
+
+@router.post("/copy")
+def copy_file(req: MoveRequest):
+    src = resolve_path(req.src)
+    dst = resolve_path(req.dst)
+    
+    if not src.exists():
+        raise HTTPException(status_code=404, detail="Исходный файл не найден")
+    
+    # If dst is a directory, copy src into it
+    if dst.is_dir():
+        dst = dst / src.name
+        
+    try:
+        shutil.copy2(str(src), str(dst))
+        return {"ok": True, "new_path": str(dst)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка копирования: {str(e)}")
 
 @router.post("/rename")
 def rename_file(path: str = Query(...), new_name: str = Query(...)):
@@ -112,3 +130,81 @@ def preview(path: str = Query(...), size: int = 256):
 
     _preview_cache.put(key, data)
     return Response(content=data, media_type="image/jpeg", headers={"Cache-Control":"no-store"})
+
+@router.post("/create-folders")
+def create_folders(req: CreateFoldersRequest):
+    """Создает 2 новые папки с продолжением нумерации"""
+    root = resolve_path(req.path)
+    if not root.exists() or not root.is_dir():
+        raise HTTPException(status_code=404, detail="Папка не найдена")
+    
+    import re
+    # Находим все числовые папки
+    numeric_folders = []
+    for item in root.iterdir():
+        if not item.is_dir():
+            continue
+        # Обрабатываем форматы: "22", "22 (15)", "22 (15)_1"
+        match = re.match(r'^(\d+)', item.name)
+        if match:
+            num = int(match.group(1))
+            numeric_folders.append(num)
+    
+    # Определяем следующий номер
+    next_num = max(numeric_folders, default=0) + 1
+    
+    created = []
+    for i in range(2):
+        folder_name = str(next_num + i)
+        folder_path = root / folder_name
+        if folder_path.exists():
+            raise HTTPException(status_code=400, detail=f"Папка {folder_name} уже существует")
+        folder_path.mkdir(parents=True, exist_ok=True)
+        created.append(folder_name)
+    
+    return {"success": True, "created": created, "message": f"Созданы папки: {', '.join(created)}"}
+
+@router.post("/update-counts")
+def update_counts(req: UpdateCountsRequest):
+    """Обновляет счетчики файлов в названиях папок"""
+    root = resolve_path(req.path)
+    if not root.exists() or not root.is_dir():
+        raise HTTPException(status_code=404, detail="Папка не найдена")
+    
+    import re
+    updated = []
+    
+    for item in root.iterdir():
+        if not item.is_dir():
+            continue
+        
+        # Извлекаем базовый номер из имени папки
+        match = re.match(r'^(\d+)', item.name)
+        if not match:
+            continue
+        
+        base_num = int(match.group(1))
+        # Считаем файлы в папке
+        file_count = len([f for f in item.iterdir() if f.is_file()])
+        
+        # Формируем новое имя
+        new_name = f"{base_num} ({file_count})"
+        new_path = root / new_name
+        
+        # Если имя уже занято (не этой же папкой), добавляем суффикс
+        if new_path.exists() and new_path != item:
+            counter = 1
+            while new_path.exists():
+                new_name = f"{base_num} ({file_count})_{counter}"
+                new_path = root / new_name
+                counter += 1
+        
+        # Переименовываем только если имя изменилось
+        if item.name != new_name:
+            try:
+                item.rename(new_path)
+                updated.append({"old": item.name, "new": new_name})
+            except Exception as e:
+                print(f"Failed to rename {item.name}: {e}")
+    
+    return {"success": True, "updated": updated, "message": f"Обновлено папок: {len(updated)}"}
