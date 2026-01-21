@@ -643,7 +643,7 @@ export const FileBrowser = ({ queuePaths, onAddToQueue }: FileBrowserProps) => {
                     <div className="space-y-4">
                       {[1, 2, 3].map(i => (
                         <div key={i} className="flex gap-3 items-center">
-                          <Skeleton className="w-20 h-20 rounded-lg" />
+                          <Skeleton className="w-80 h-80 rounded-lg" />
                           <div className="space-y-2 flex-1">
                             <Skeleton className="h-4 w-3/4" />
                             <Skeleton className="h-3 w-1/2" />
@@ -665,16 +665,16 @@ export const FileBrowser = ({ queuePaths, onAddToQueue }: FileBrowserProps) => {
                           }`}
                         >
                           <div className="flex p-3 gap-4 items-center">
-                            <div className="w-20 h-20 rounded-lg bg-muted overflow-hidden border shrink-0">
+                            <div className="w-80 h-80 rounded-lg bg-muted overflow-hidden border shrink-0">
                               {cand.example_image ? (
                                 <img
-                                  src={previewUrl(cand.example_image, 320)}
+                                  src={previewUrl(cand.example_image, 960)}
                                   className="w-full h-full object-cover"
                                   alt=""
                                 />
                               ) : (
                                 <div className="w-full h-full flex items-center justify-center">
-                                  <User className="w-10 h-10 text-muted-foreground/30" />
+                                  <User className="w-30 h-30 text-muted-foreground/30" />
                                 </div>
                               )}
                             </div>
