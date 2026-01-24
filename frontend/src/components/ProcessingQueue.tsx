@@ -134,6 +134,7 @@ export const ProcessingQueue = ({
               </svg>
             </Button>
           )}
+          </div>
         </div>
       </div>
 
