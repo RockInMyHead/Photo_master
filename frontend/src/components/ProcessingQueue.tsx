@@ -1,5 +1,7 @@
 import { Play, Trash2, ListChecks, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { QueueItemComponent } from "./QueueItem";
 import { QueueItem, ProcessingStatus } from "@/types/fileSystem";
 import { useState } from "react";
@@ -11,7 +13,7 @@ interface ProcessingQueueProps {
   onRemoveFromQueue: (id: string) => void;
   onClearQueue: () => void;
   onClearCompleted: () => void;
-  onStartProcessing: () => void;
+  onStartProcessing: (includeShared: boolean) => void;
   onAddToQueue: (handle: FileSystemDirectoryHandle, name: string, path: string) => void;
 }
 
@@ -25,6 +27,7 @@ export const ProcessingQueue = ({
   onAddToQueue,
 }: ProcessingQueueProps) => {
   const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const [includeShared, setIncludeShared] = useState(false);
   const pendingCount = queue.filter(q => q.status === 'pending').length;
   const completedCount = queue.filter(q => q.status === 'completed').length;
   const errorCount = queue.filter(q => q.status === 'error').length;
@@ -81,16 +84,31 @@ export const ProcessingQueue = ({
           )}
         </div>
         
-        <div className="flex gap-2">
-          <Button
-            variant="primary"
-            className="flex-1"
-            disabled={pendingCount === 0 || status.isProcessing}
-            onClick={onStartProcessing}
-          >
-            <Play className="w-4 h-4" />
-            {status.isProcessing ? 'Обработка...' : 'Обработать'}
-          </Button>
+        <div className="space-y-2">
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="includeShared"
+              checked={includeShared}
+              onCheckedChange={(checked) => setIncludeShared(checked === true)}
+            />
+            <Label
+              htmlFor="includeShared"
+              className="text-sm font-normal cursor-pointer"
+            >
+              Общая фотография
+            </Label>
+          </div>
+          
+          <div className="flex gap-2">
+            <Button
+              variant="primary"
+              className="flex-1"
+              disabled={pendingCount === 0 || status.isProcessing}
+              onClick={() => onStartProcessing(includeShared)}
+            >
+              <Play className="w-4 h-4" />
+              {status.isProcessing ? 'Обработка...' : 'Обработать'}
+            </Button>
 
           <Button
             variant="outline"

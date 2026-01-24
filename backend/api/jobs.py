@@ -25,7 +25,7 @@ async def create_job(req: JobCreateRequest):
                 registry.update(job_id, progress=pct, stage="run", message=msg)
             )
 
-        result_dict = await process_folder(folder, joint_mode=req.jointMode, singletons=True, progress=progress)
+        result_dict = await process_folder(folder, joint_mode=req.jointMode, singletons=True, progress=progress, include_shared=req.includeShared)
         await registry.update(job_id, result=JobResult(**result_dict), stage="done", message="Готово")
 
     await registry.start(job_id, runner)

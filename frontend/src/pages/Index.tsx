@@ -263,7 +263,7 @@ const Index = () => {
     setQueue(prev => prev.filter(item => item.status === 'pending' || item.status === 'processing'));
   }, []);
 
-  const processQueue = async () => {
+  const processQueue = async (includeShared: boolean = false) => {
     const pendingItems = queue.filter(item => item.status === 'pending');
     if (pendingItems.length === 0) return;
 
@@ -286,6 +286,7 @@ const Index = () => {
           jointMode: 'copy',
           includeExcluded: false,
           postValidate: false,
+          includeShared: includeShared,
         });
 
         console.log(`✅ Задача создана: ${job.job_id} для "${item.name}"`);
@@ -344,7 +345,7 @@ const Index = () => {
           onRemoveFromQueue={removeFromQueue}
           onClearQueue={clearQueue}
           onClearCompleted={clearCompleted}
-          onStartProcessing={processQueue}
+          onStartProcessing={(includeShared) => processQueue(includeShared)}
           onAddToQueue={addToQueue}
         />
       </main>

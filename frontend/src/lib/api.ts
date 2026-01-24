@@ -6,6 +6,7 @@ export interface JobCreateRequest {
   includeExcluded?: boolean;
   jointMode?: 'copy' | 'combine';
   postValidate?: boolean;
+  includeShared?: boolean;
 }
 
 export interface JobStatus {

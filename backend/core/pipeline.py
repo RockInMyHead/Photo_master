@@ -219,13 +219,17 @@ def save_cluster_index(root: Path, face_recs: List[FaceRecord], labels: List[int
     idx_dir.mkdir(parents=True, exist_ok=True)
     (idx_dir / "centroids.json").write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
 
-def collect_images(folder: Path) -> List[Path]:
+def collect_images(folder: Path, include_shared: bool = False) -> List[Path]:
     import os
     # Список имен папок, которые нужно полностью пропускать
     SKIP_FOLDERS = {
         "общие", "shared", "public", "system", "библиотека", "library",
         "temp", "tmp", "cache", "logs", "thumbnails", "previews"
     }
+    
+    # Если include_shared=True, исключаем "общие" и "shared" из SKIP_FOLDERS
+    if include_shared:
+        SKIP_FOLDERS = SKIP_FOLDERS - {"общие", "shared"}
 
     images = []
     for root, dirs, files in os.walk(folder):
@@ -315,6 +319,7 @@ async def process_folder(
     joint_mode: str,
     singletons: bool,
     progress: Callable[[int, str], None],
+    include_shared: bool = False,
 ) -> Dict:
     # АГРЕССИВНОЕ ОБЪЕДИНЕНИЕ: для лиц с сильными изменениями (борода, очки, прическа)
     link_sim = 0.45      # Очень низкий порог для связывания лиц
@@ -325,7 +330,7 @@ async def process_folder(
 
     progress(2, "Подготовка")
     progress(3, "Сканирование файлов")
-    images = collect_images(path)
+    images = collect_images(path, include_shared=include_shared)
     if not images:
         progress(100, "Нет изображений")
         return {"moved": 0, "copied": 0, "clusters": 0, "no_faces": 0, "unreadable": 0}

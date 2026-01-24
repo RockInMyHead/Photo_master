@@ -6,6 +6,7 @@ class JobCreateRequest(BaseModel):
     includeExcluded: bool = False
     jointMode: Literal["copy","combine"] = "copy"
     postValidate: bool = False
+    includeShared: bool = False
 
 class JobResult(BaseModel):
     moved: int = 0
