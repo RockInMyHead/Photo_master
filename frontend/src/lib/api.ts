@@ -1,5 +1,8 @@
 // API client for backend communication
-const API_BASE = 'http://localhost:8000/api';
+// Прямой URL к бэкенду (CORS разрешён) — работает при открытии из любого origin
+const API_BASE = import.meta.env.DEV
+  ? 'http://localhost:8001/api'
+  : '/api';
 
 export interface JobCreateRequest {
   path: string;
@@ -7,6 +10,9 @@ export interface JobCreateRequest {
   jointMode?: 'copy' | 'combine';
   postValidate?: boolean;
   includeShared?: boolean;
+  clusteringEngine?: 'local' | 'immich';
+  immichUrl?: string;
+  immichApiKey?: string;
 }
 
 export interface JobStatus {

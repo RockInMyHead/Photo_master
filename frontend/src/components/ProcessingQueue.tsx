@@ -2,6 +2,8 @@ import { Play, Trash2, ListChecks, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { QueueItemComponent } from "./QueueItem";
 import { QueueItem, ProcessingStatus } from "@/types/fileSystem";
 import { useState } from "react";
@@ -13,7 +15,7 @@ interface ProcessingQueueProps {
   onRemoveFromQueue: (id: string) => void;
   onClearQueue: () => void;
   onClearCompleted: () => void;
-  onStartProcessing: (includeShared: boolean) => void;
+  onStartProcessing: (includeShared: boolean, clusteringEngine: 'local' | 'immich', immichUrl?: string, immichApiKey?: string) => void;
   onAddToQueue: (handle: FileSystemDirectoryHandle, name: string, path: string) => void;
 }
 
@@ -28,6 +30,9 @@ export const ProcessingQueue = ({
 }: ProcessingQueueProps) => {
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [includeShared, setIncludeShared] = useState(false);
+  const [clusteringEngine, setClusteringEngine] = useState<'local' | 'immich'>('local');
+  const [immichUrl, setImmichUrl] = useState('http://176.109.108.53');
+  const [immichApiKey, setImmichApiKey] = useState('');
   const pendingCount = queue.filter(q => q.status === 'pending').length;
   const completedCount = queue.filter(q => q.status === 'completed').length;
   const errorCount = queue.filter(q => q.status === 'error').length;
@@ -84,7 +89,59 @@ export const ProcessingQueue = ({
           )}
         </div>
         
-        <div className="space-y-2">
+        <div className="space-y-3">
+          <div className="space-y-2">
+            <Label htmlFor="clusteringEngine" className="text-xs font-semibold text-muted-foreground">
+              Движок кластеризации
+            </Label>
+            <Select
+              value={clusteringEngine}
+              onValueChange={(value: 'local' | 'immich') => setClusteringEngine(value)}
+            >
+              <SelectTrigger id="clusteringEngine" className="h-9">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="local">Локальный (InsightFace)</SelectItem>
+                <SelectItem value="immich">Immich API</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {clusteringEngine === 'immich' && (
+            <div className="space-y-2 p-3 bg-muted/50 rounded-lg border border-border">
+              <div className="space-y-1.5">
+                <Label htmlFor="immichUrl" className="text-xs font-semibold">
+                  Immich URL
+                </Label>
+                <Input
+                  id="immichUrl"
+                  type="url"
+                  placeholder="http://176.109.108.53"
+                  value={immichUrl}
+                  onChange={(e) => setImmichUrl(e.target.value)}
+                  className="h-8 text-xs"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="immichApiKey" className="text-xs font-semibold">
+                  API Key
+                </Label>
+                <p className="text-[10px] text-muted-foreground">
+                  Immich → Settings → Access Tokens
+                </p>
+                <Input
+                  id="immichApiKey"
+                  type="password"
+                  placeholder="Введите API ключ"
+                  value={immichApiKey}
+                  onChange={(e) => setImmichApiKey(e.target.value)}
+                  className="h-8 text-xs"
+                />
+              </div>
+            </div>
+          )}
+
           <div className="flex items-center space-x-2">
             <Checkbox
               id="includeShared"
@@ -104,7 +161,18 @@ export const ProcessingQueue = ({
               variant="primary"
               className="flex-1"
               disabled={pendingCount === 0 || status.isProcessing}
-              onClick={() => onStartProcessing(includeShared)}
+              onClick={() => {
+                if (clusteringEngine === 'immich' && (!immichUrl || !immichApiKey)) {
+                  toast.error('Заполните Immich URL и API Key');
+                  return;
+                }
+                onStartProcessing(
+                  includeShared,
+                  clusteringEngine,
+                  clusteringEngine === 'immich' ? immichUrl : undefined,
+                  clusteringEngine === 'immich' ? immichApiKey : undefined
+                );
+              }}
             >
               <Play className="w-4 h-4" />
               {status.isProcessing ? 'Обработка...' : 'Обработать'}

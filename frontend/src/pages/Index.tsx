@@ -263,7 +263,12 @@ const Index = () => {
     setQueue(prev => prev.filter(item => item.status === 'pending' || item.status === 'processing'));
   }, []);
 
-  const processQueue = async (includeShared: boolean = false) => {
+  const processQueue = async (
+    includeShared: boolean = false,
+    clusteringEngine: 'local' | 'immich' = 'local',
+    immichUrl?: string,
+    immichApiKey?: string
+  ) => {
     const pendingItems = queue.filter(item => item.status === 'pending');
     if (pendingItems.length === 0) return;
 
@@ -287,6 +292,9 @@ const Index = () => {
           includeExcluded: false,
           postValidate: false,
           includeShared: includeShared,
+          clusteringEngine: clusteringEngine,
+          immichUrl: immichUrl,
+          immichApiKey: immichApiKey,
         });
 
         console.log(`✅ Задача создана: ${job.job_id} для "${item.name}"`);
@@ -345,7 +353,9 @@ const Index = () => {
           onRemoveFromQueue={removeFromQueue}
           onClearQueue={clearQueue}
           onClearCompleted={clearCompleted}
-          onStartProcessing={(includeShared) => processQueue(includeShared)}
+          onStartProcessing={(includeShared, clusteringEngine, immichUrl, immichApiKey) => 
+            processQueue(includeShared, clusteringEngine, immichUrl, immichApiKey)
+          }
           onAddToQueue={addToQueue}
         />
       </main>

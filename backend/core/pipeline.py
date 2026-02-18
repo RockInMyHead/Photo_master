@@ -12,6 +12,7 @@ from utils.fs_utils import IMG_EXTS
 from core.distributor import distribute_plan
 from core.insightface_engine import init_engine, extract_faces_batch, FaceRecord
 from core.quality_cluster import cluster_quality
+from core.immich_client import ImmichClient, ImmichConfig
 
 def _l2norm_rows(X: np.ndarray) -> np.ndarray:
     n = np.linalg.norm(X, axis=1, keepdims=True) + 1e-12
@@ -313,7 +314,55 @@ def rename_cluster_folders(root: Path) -> None:
         except Exception as e:
             print(f"Failed to rename {folder_path.name}: {e}")
 
-async def process_folder(
+async def _run_local_clustering(
+    images: List[Path],
+    progress: Callable[[int, str], None],
+) -> Tuple[List, List[int], List[Path]]:
+    """Извлечение лиц + кластеризация. Возвращает (face_recs, labels, no_face_imgs)."""
+    link_sim, merge_sim, assign_sim = 0.45, 0.55, 0.55
+    min_intra_sim, assign_margin = 0.40, 0.02
+
+    await asyncio.to_thread(init_engine, det_size=(1280, 1280), det_thresh=0.65)
+    progress(52, "Детект лиц и эмбеддинги")
+    face_recs = []
+    batch_size = 5
+    for i in range(0, len(images), batch_size):
+        batch = images[i:i + batch_size]
+        batch_faces = await asyncio.to_thread(
+            extract_faces_batch, [str(p) for p in batch], min_face_px=40
+        )
+        face_recs.extend(batch_faces)
+        pct = 52 + int(15 * (i + len(batch)) / len(images))
+        progress(pct, f"Обработка лиц: {i + len(batch)}/{len(images)}")
+
+    with_faces = set(fr.image_path for fr in face_recs)
+    no_face_imgs = [p for p in images if str(p) not in with_faces]
+
+    if len(face_recs) == 0:
+        return [], [], no_face_imgs
+
+    progress(68, "Кластеризация")
+    embs = [fr.embedding for fr in face_recs]
+    embs_lists = [e.tolist() if hasattr(e, 'tolist') else list(e) for e in embs]
+
+    labels0, _, _ = await asyncio.to_thread(
+        cluster_quality, embs_lists,
+        link_sim=link_sim, merge_sim=merge_sim, assign_sim=assign_sim,
+        min_intra_sim=min_intra_sim, assign_margin=assign_margin,
+    )
+    X = np.asarray([fr.embedding for fr in face_recs], dtype=np.float32)
+    X = _l2norm_rows(X)
+    labels0, _ = apply_confidence_gating(
+        X, labels0, keep_sim=0.55, min_cluster_size=3,
+        small_cluster_keep_sim=0.62, min_cluster_mean_sim=0.58,
+    )
+    labels0 = merge_clusters_by_centroids(X, labels0, merge_centroid_sim=0.58, min_cross_sim=0.52)
+    labels0 = send_ambiguous_small_clusters_to_singletons(X, labels0, gray_low=0.52, gray_high=0.58, small_ratio=0.40)
+    labels = remap_labels_keep_minus1(labels0)
+    return face_recs, labels, no_face_imgs
+
+
+async def process_folder_local(
     path: Path,
     *,
     joint_mode: str,
@@ -321,6 +370,7 @@ async def process_folder(
     progress: Callable[[int, str], None],
     include_shared: bool = False,
 ) -> Dict:
+    """Локальная кластеризация с InsightFace + scikit-learn"""
     # АГРЕССИВНОЕ ОБЪЕДИНЕНИЕ: для лиц с сильными изменениями (борода, очки, прическа)
     link_sim = 0.45      # Очень низкий порог для связывания лиц
     merge_sim = 0.55     # Очень низкий порог для слияния кластеров (решает проблему разбиения на 2 папки)
@@ -476,3 +526,122 @@ async def process_folder(
 
     progress(100, "Готово")
     return {**stats, "no_faces": len(no_face_imgs), "unreadable": 0}
+
+
+async def process_folder_immich(
+    path: Path,
+    *,
+    joint_mode: str,
+    singletons: bool,
+    progress: Callable[[int, str], None],
+    include_shared: bool = False,
+    immich_url: str = "",
+    immich_api_key: str = "",
+) -> Dict:
+    """Immich: загрузка в библиотеку + локальная кластеризация (InsightFace) для качества"""
+    progress(2, "Подготовка")
+    progress(3, "Сканирование файлов")
+    images = collect_images(path, include_shared=include_shared)
+    if not images:
+        progress(100, "Нет изображений")
+        return {"moved": 0, "copied": 0, "clusters": 0, "no_faces": 0, "unreadable": 0}
+    
+    config = ImmichConfig(url=immich_url, api_key=immich_api_key)
+    client = ImmichClient(config)
+    
+    try:
+        if not await client.test_connection():
+            raise Exception("Не удалось подключиться к Immich серверу")
+        
+        # 1. Загрузка в Immich + ожидание детекта лиц
+        progress(10, "Загрузка в Immich")
+        uploaded_paths = await client.upload_and_wait_for_faces(images, progress_callback=progress)
+        uploaded_set = {str(p) for p in uploaded_paths}
+        failed_upload = [p for p in images if str(p) not in uploaded_set]
+
+        # 2. Локальная кластеризация (InsightFace) — качество как в local mode
+        progress(50, "Локальная кластеризация (InsightFace)")
+        face_recs, labels, no_face_imgs = await _run_local_clustering(uploaded_paths, progress)
+        no_face_imgs = no_face_imgs + failed_upload
+
+        if len(face_recs) == 0:
+            progress(100, "Лиц не найдено")
+            return {"moved": 0, "copied": 0, "clusters": 0, "no_faces": len(images), "unreadable": 0}
+        
+        # Сохраняем индекс кластеров
+        progress(70, "Индекс кластеров")
+        await asyncio.to_thread(save_cluster_index, path, face_recs, labels)
+        
+        # Создаем план распределения
+        progress(75, "План раскладки")
+        plan = build_plan_from_faces(face_recs, labels, None)
+        
+        # Фото без лиц
+        for p in no_face_imgs:
+            plan.append({"path": str(p), "clusters": [], "confidence": 0.0})
+        
+        # Распределение по папкам
+        progress(90, "Распределение по папкам")
+        stats = await asyncio.to_thread(
+            distribute_plan,
+            plan,
+            path,
+            joint_mode=joint_mode,
+            singletons=singletons,
+        )
+        
+        # Гарантируем создание singletons
+        singletons_dir = path / "singletons"
+        if singletons and not singletons_dir.exists():
+            singletons_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Переименовываем папки
+        progress(95, "Переименование папок кластеров")
+        await asyncio.to_thread(rename_cluster_folders, path)
+        
+        progress(100, "Готово")
+        return {**stats, "no_faces": len(no_face_imgs), "unreadable": 0}
+    
+    finally:
+        await client.close()
+
+
+async def process_folder(
+    path: Path,
+    *,
+    joint_mode: str,
+    singletons: bool,
+    progress: Callable[[int, str], None],
+    include_shared: bool = False,
+    clustering_engine: str = "local",
+    immich_url: Optional[str] = None,
+    immich_api_key: Optional[str] = None,
+) -> Dict:
+    """
+    Главная функция обработки папки с поддержкой выбора движка кластеризации
+    
+    Args:
+        clustering_engine: "local" или "immich"
+        immich_url: URL Immich сервера (требуется для immich режима)
+        immich_api_key: API ключ Immich (требуется для immich режима)
+    """
+    if clustering_engine == "immich":
+        if not immich_url or not immich_api_key:
+            raise ValueError("Для Immich режима требуются immich_url и immich_api_key")
+        return await process_folder_immich(
+            path,
+            joint_mode=joint_mode,
+            singletons=singletons,
+            progress=progress,
+            include_shared=include_shared,
+            immich_url=immich_url,
+            immich_api_key=immich_api_key,
+        )
+    else:
+        return await process_folder_local(
+            path,
+            joint_mode=joint_mode,
+            singletons=singletons,
+            progress=progress,
+            include_shared=include_shared,
+        )

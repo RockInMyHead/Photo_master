@@ -7,6 +7,9 @@ class Settings(BaseModel):
     SANDBOX_ROOT: str = os.getenv("SANDBOX_ROOT", "")
     PREVIEW_CACHE_MAX_ITEMS: int = int(os.getenv("PREVIEW_CACHE_MAX_ITEMS", "256"))
     MAX_UPLOAD_MB: int = int(os.getenv("MAX_UPLOAD_MB", "200"))
+    # Immich settings (optional, can be overridden in request)
+    IMMICH_URL: Optional[str] = os.getenv("IMMICH_URL", None)
+    IMMICH_API_KEY: Optional[str] = os.getenv("IMMICH_API_KEY", None)
 
 settings = Settings()
 

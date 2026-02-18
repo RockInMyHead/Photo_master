@@ -7,6 +7,9 @@ class JobCreateRequest(BaseModel):
     jointMode: Literal["copy","combine"] = "copy"
     postValidate: bool = False
     includeShared: bool = False
+    clusteringEngine: Literal["local", "immich"] = "local"
+    immichUrl: Optional[str] = None
+    immichApiKey: Optional[str] = None
 
 class JobResult(BaseModel):
     moved: int = 0
