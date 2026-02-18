@@ -3,7 +3,6 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { QueueItemComponent } from "./QueueItem";
 import { QueueItem, ProcessingStatus } from "@/types/fileSystem";
 import { useState } from "react";
@@ -94,18 +93,15 @@ export const ProcessingQueue = ({
             <Label htmlFor="clusteringEngine" className="text-xs font-semibold text-muted-foreground">
               Движок кластеризации
             </Label>
-            <Select
+            <select
+              id="clusteringEngine"
               value={clusteringEngine}
-              onValueChange={(value: 'local' | 'immich') => setClusteringEngine(value)}
+              onChange={(e) => setClusteringEngine(e.target.value as 'local' | 'immich')}
+              className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <SelectTrigger id="clusteringEngine" className="h-9">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="local">Локальный (InsightFace)</SelectItem>
-                <SelectItem value="immich">Immich API</SelectItem>
-              </SelectContent>
-            </Select>
+              <option value="local">Локальный (InsightFace)</option>
+              <option value="immich">Immich API</option>
+            </select>
           </div>
 
           {clusteringEngine === 'immich' && (

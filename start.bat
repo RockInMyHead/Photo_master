@@ -83,8 +83,8 @@ echo 🚀 Starting servers...
 echo.
 
 REM Start backend in new window
-echo Starting backend server on http://localhost:8000
-start "Photo Master - Backend" cmd /k "cd backend && call venv\Scripts\activate.bat && python -m uvicorn app:app --reload --host 0.0.0.0 --port 8000"
+echo Starting backend server on http://localhost:8001
+start "Photo Master - Backend" cmd /k "cd backend && call venv\Scripts\activate.bat && python -m uvicorn app:app --reload --host 0.0.0.0 --port 8001"
 
 REM Wait a moment for backend to start
 timeout /t 3 /nobreak >nul
@@ -99,7 +99,7 @@ echo 🎉 Servers are starting up!
 echo ===========================================
 echo.
 echo 📱 Frontend: http://localhost:5173
-echo 🔧 Backend API: http://localhost:8000
+echo 🔧 Backend API: http://localhost:8001
 echo.
 echo Press any key to close this window...
 echo (Servers will continue running in background)
