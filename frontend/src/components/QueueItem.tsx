@@ -1,4 +1,4 @@
-import { Folder, X, CheckCircle2, AlertCircle, Loader2, Check } from "lucide-react";
+import { Folder, X, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
 import { QueueItem as QueueItemType } from "@/types/fileSystem";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -101,7 +101,7 @@ export const QueueItemComponent = ({ item, onRemove }: QueueItemProps) => {
                           : "bg-transparent border-transparent text-muted-foreground opacity-20"
                       }`}
                     >
-                      {isCompleted && <Check className="w-2.5 h-2.5" />}
+                      <span className="w-2.5 shrink-0 inline-block text-center">{isCompleted ? "✓" : ""}</span>
                       {stage.label}
                     </div>
                   );
