@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { FolderOpen, RefreshCw, Home, File, Plus, Check, Edit2, ZoomIn, ZoomOut, Maximize2, Move, User, FolderPlus, RotateCcw } from "lucide-react";
+import { FolderOpen, RefreshCw, Home, File, Plus, Check, Edit2, ZoomIn, ZoomOut, Maximize2, Move, User, FolderPlus, RotateCcw, Folder } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Breadcrumbs } from "./Breadcrumbs";
 import { apiClient, previewUrl, ReviewCandidatesResponse } from "@/lib/api";
@@ -643,7 +643,7 @@ export const FileBrowser = ({ queuePaths, onAddToQueue }: FileBrowserProps) => {
                     <div className="space-y-4">
                       {[1, 2, 3].map(i => (
                         <div key={i} className="flex gap-3 items-center">
-                          <Skeleton className="w-80 h-80 rounded-lg" />
+                          <Skeleton className="w-24 h-24 rounded-lg shrink-0" />
                           <div className="space-y-2 flex-1">
                             <Skeleton className="h-4 w-3/4" />
                             <Skeleton className="h-3 w-1/2" />
@@ -665,16 +665,16 @@ export const FileBrowser = ({ queuePaths, onAddToQueue }: FileBrowserProps) => {
                           }`}
                         >
                           <div className="flex p-3 gap-4 items-center">
-                            <div className="w-80 h-80 rounded-lg bg-muted overflow-hidden border shrink-0">
+                            <div className="w-24 h-24 rounded-lg bg-muted overflow-hidden border shrink-0">
                               {cand.example_image ? (
                                 <img
-                                  src={previewUrl(cand.example_image, 960)}
+                                  src={previewUrl(cand.example_image, 256)}
                                   className="w-full h-full object-cover"
                                   alt=""
                                 />
                               ) : (
                                 <div className="w-full h-full flex items-center justify-center">
-                                  <User className="w-30 h-30 text-muted-foreground/30" />
+                                  <User className="w-12 h-12 text-muted-foreground/30" />
                                 </div>
                               )}
                             </div>
@@ -688,8 +688,11 @@ export const FileBrowser = ({ queuePaths, onAddToQueue }: FileBrowserProps) => {
                                   </Badge>
                                 )}
                               </div>
-                              <div className="text-sm text-muted-foreground truncate mb-1">
-                                {cand.folder_name}
+                              <div className="flex items-center gap-1.5 text-sm text-muted-foreground min-h-5 mb-1">
+                                <Folder className="w-4 h-4 shrink-0 text-muted-foreground/70" />
+                                <span className="truncate" title={cand.folder_name || cand.folder_path}>
+                                  {cand.folder_name || cand.folder_path?.split(/[/\\]/).pop() || `Кластер #${cand.cluster_id}`}
+                                </span>
                               </div>
                               <div className="flex items-center gap-2">
                                 <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">

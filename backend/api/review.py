@@ -85,9 +85,10 @@ def candidates(
                 continue
             example = _pick_example_image(folder)
             s = float(sims[j])
+            folder_name = folder.name or folder.parts[-1] if folder.parts else str(cid)
             cand.append({
                 "cluster_id": int(cid) if cid.isdigit() else cid,
-                "folder_name": folder.name,
+                "folder_name": folder_name,
                 "folder_path": str(folder),
                 "score": round(s, 4),
                 "percent": round(s * 100.0, 1),
