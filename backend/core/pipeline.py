@@ -276,6 +276,52 @@ def build_plan_from_faces(faces: List[FaceRecord], labels: List[int], confidence
 
     return plan
 
+
+def filter_small_clusters_to_singletons(plan: List[Dict], min_photos_per_cluster: int = 2) -> List[Dict]:
+    """Кластеры с < min_photos_per_cluster фото отправляем в singletons (избегаем пустых/малонаселённых папок)"""
+    from collections import Counter
+    cluster_counts: Counter = Counter()
+    combo_counts: Counter = Counter()  # для joint_mode=combine: (1,2) -> N фото
+    for item in plan:
+        clusters = item.get("clusters", [])
+        for cid in clusters:
+            cluster_counts[cid] += 1
+        if len(clusters) > 1:
+            combo_counts[tuple(sorted(clusters))] += 1
+
+    out = []
+    for item in plan:
+        clusters = item.get("clusters", [])
+        if not clusters:
+            out.append(item)
+            continue
+        if len(clusters) == 1:
+            cnt = cluster_counts.get(clusters[0], 0)
+        else:
+            cnt = combo_counts.get(tuple(sorted(clusters)), 0)
+        if cnt < min_photos_per_cluster:
+            out.append({"path": item["path"], "clusters": [], "confidence": 0.0})
+        else:
+            out.append(item)
+    return out
+
+def remove_empty_cluster_folders(root: Path) -> None:
+    """Удаляет пустые папки кластеров (числовые имена и комбинированные 1+2)"""
+    import re
+    for item in list(root.iterdir()):
+        if not item.is_dir():
+            continue
+        # Числовые: 1, 2, 15 или комбинированные: 1+2, 1+2+3
+        if item.name.isdigit() or re.match(r"^\d+(\+\d+)+$", item.name):
+            file_count = len([f for f in item.iterdir() if f.is_file()])
+            if file_count == 0:
+                try:
+                    item.rmdir()
+                    print(f"Removed empty folder: {item.name}")
+                except Exception as e:
+                    print(f"Failed to remove empty folder {item.name}: {e}")
+
+
 def rename_cluster_folders(root: Path) -> None:
     """Переименовывает папки кластеров, добавляя количество файлов в скобках"""
     import os
@@ -317,10 +363,16 @@ def rename_cluster_folders(root: Path) -> None:
 async def _run_local_clustering(
     images: List[Path],
     progress: Callable[[int, str], None],
+    *,
+    strict: bool = False,
 ) -> Tuple[List, List[int], List[Path]]:
-    """Извлечение лиц + кластеризация. Возвращает (face_recs, labels, no_face_imgs)."""
-    link_sim, merge_sim, assign_sim = 0.45, 0.55, 0.55
-    min_intra_sim, assign_margin = 0.40, 0.02
+    """Извлечение лиц + кластеризация. strict=True — для Immich/серверного режима (более строгие пороги)."""
+    if strict:
+        link_sim, merge_sim, assign_sim = 0.50, 0.58, 0.58
+        min_intra_sim, assign_margin = 0.45, 0.03
+    else:
+        link_sim, merge_sim, assign_sim = 0.45, 0.55, 0.55
+        min_intra_sim, assign_margin = 0.40, 0.02
 
     await asyncio.to_thread(init_engine, det_size=(1280, 1280), det_thresh=0.65)
     progress(52, "Детект лиц и эмбеддинги")
@@ -352,12 +404,20 @@ async def _run_local_clustering(
     )
     X = np.asarray([fr.embedding for fr in face_recs], dtype=np.float32)
     X = _l2norm_rows(X)
-    labels0, _ = apply_confidence_gating(
-        X, labels0, keep_sim=0.55, min_cluster_size=3,
-        small_cluster_keep_sim=0.62, min_cluster_mean_sim=0.58,
-    )
-    labels0 = merge_clusters_by_centroids(X, labels0, merge_centroid_sim=0.58, min_cross_sim=0.52)
-    labels0 = send_ambiguous_small_clusters_to_singletons(X, labels0, gray_low=0.52, gray_high=0.58, small_ratio=0.40)
+    if strict:
+        labels0, _ = apply_confidence_gating(
+            X, labels0, keep_sim=0.60, min_cluster_size=4,
+            small_cluster_keep_sim=0.65, min_cluster_mean_sim=0.62,
+        )
+        labels0 = merge_clusters_by_centroids(X, labels0, merge_centroid_sim=0.56, min_cross_sim=0.54)
+        labels0 = send_ambiguous_small_clusters_to_singletons(X, labels0, gray_low=0.50, gray_high=0.56, small_ratio=0.30)
+    else:
+        labels0, _ = apply_confidence_gating(
+            X, labels0, keep_sim=0.55, min_cluster_size=3,
+            small_cluster_keep_sim=0.62, min_cluster_mean_sim=0.58,
+        )
+        labels0 = merge_clusters_by_centroids(X, labels0, merge_centroid_sim=0.58, min_cross_sim=0.52)
+        labels0 = send_ambiguous_small_clusters_to_singletons(X, labels0, gray_low=0.52, gray_high=0.58, small_ratio=0.40)
     labels = remap_labels_keep_minus1(labels0)
     return face_recs, labels, no_face_imgs
 
@@ -493,18 +553,14 @@ async def process_folder_local(
 
     progress(75, "План раскладки")
     # После confidence gating confidences0 больше не актуальны, поэтому передаем None
-    # build_plan_from_faces сама рассчитает confidence для оставшихся кластеров
     plan = build_plan_from_faces(face_recs, labels, None)
-
-    # Фото с лицами, но без кластеров (все лица outliers) => clusters=[]
-    face_paths = set(fr.image_path for fr in face_recs)
-    for item in plan:
-        if not item["clusters"]:  # фото с лицом, но без кластеров
-            pass  # уже в плане с пустыми clusters
 
     # Фото без лиц => clusters=[], confidence=0
     for p in no_face_imgs:
         plan.append({"path": str(p), "clusters": [], "confidence": 0.0})
+
+    # Кластеры с < 2 фото — в singletons (меньше пустых/малонаселённых папок)
+    plan = filter_small_clusters_to_singletons(plan, min_photos_per_cluster=2)
 
     progress(90, "Распределение по папкам")
     stats = await asyncio.to_thread(
@@ -515,10 +571,8 @@ async def process_folder_local(
         singletons=singletons,
     )
 
-    # Гарантируем создание singletons для тех, кто не прошел порог строгости
-    singletons_dir = path / "singletons"
-    if singletons and not singletons_dir.exists():
-        singletons_dir.mkdir(parents=True, exist_ok=True)
+    # Удаляем пустые папки кластеров
+    await asyncio.to_thread(remove_empty_cluster_folders, path)
 
     # Переименовываем папки кластеров, добавляя количество файлов
     progress(95, "Переименование папок кластеров")
@@ -559,9 +613,9 @@ async def process_folder_immich(
         uploaded_set = {str(p) for p in uploaded_paths}
         failed_upload = [p for p in images if str(p) not in uploaded_set]
 
-        # 2. Локальная кластеризация (InsightFace) — качество как в local mode
+        # 2. Локальная кластеризация (InsightFace) — строже для серверного режима
         progress(50, "Локальная кластеризация (InsightFace)")
-        face_recs, labels, no_face_imgs = await _run_local_clustering(uploaded_paths, progress)
+        face_recs, labels, no_face_imgs = await _run_local_clustering(uploaded_paths, progress, strict=True)
         no_face_imgs = no_face_imgs + failed_upload
 
         if len(face_recs) == 0:
@@ -580,6 +634,9 @@ async def process_folder_immich(
         for p in no_face_imgs:
             plan.append({"path": str(p), "clusters": [], "confidence": 0.0})
         
+        # Кластеры с < 2 фото — в singletons
+        plan = filter_small_clusters_to_singletons(plan, min_photos_per_cluster=2)
+        
         # Распределение по папкам
         progress(90, "Распределение по папкам")
         stats = await asyncio.to_thread(
@@ -590,10 +647,8 @@ async def process_folder_immich(
             singletons=singletons,
         )
         
-        # Гарантируем создание singletons
-        singletons_dir = path / "singletons"
-        if singletons and not singletons_dir.exists():
-            singletons_dir.mkdir(parents=True, exist_ok=True)
+        # Удаляем пустые папки
+        await asyncio.to_thread(remove_empty_cluster_folders, path)
         
         # Переименовываем папки
         progress(95, "Переименование папок кластеров")

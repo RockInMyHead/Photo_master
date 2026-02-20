@@ -14,12 +14,11 @@ def distribute_plan(plan: list[dict], root: Path, joint_mode: JointMode = "copy"
         clusters: list[int] = item.get("clusters", [])
         confidence: float = item.get("confidence", 0.0)
 
-        # После confidence gating: если нет кластеров - значит фото в singletons
-        # confidence уже учтён в gating, так что просто проверяем наличие кластеров
+        # Нераспознанные (clusters=[]) всегда идут в singletons — папка создаётся при необходимости
         if not clusters:
-            if singletons:
-                target = root / "singletons" / img_path.name
-                target.parent.mkdir(parents=True, exist_ok=True)
+            target = root / "singletons" / img_path.name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if img_path.exists():
                 shutil.move(str(img_path), str(target))
                 moved += 1
             continue
